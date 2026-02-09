@@ -54,11 +54,16 @@ class MiniMaxTTSService(BaseTTSService):
     def _parse_content(self, content: str) -> List[Dialogue]:
         """解析内容为对话列表"""
         dialogues = []
-        pattern = r"\*\*罗永浩：\*\*([^\*]+)|\*\*王自如：\*\*([^\*]+)"
+        # 支持新旧两种格式：彪悍罗/OK王 或 罗永浩/王自如
+        pattern = r"\*\*彪悍罗：\*\*([^\*]+)|\*\*OK王：\*\*([^\*]+)|\*\*罗永浩：\*\*([^\*]+)|\*\*王自如：\*\*([^\*]+)"
 
         for match in re.finditer(pattern, content):
-            text = match.group(1) or match.group(2)
-            speaker = "luoyonghao" if match.group(1) else "wangziru"
+            text = match.group(1) or match.group(2) or match.group(3) or match.group(4)
+            # 彪悍罗/罗永浩 -> luoyonghao, OK王/王自如 -> wangziru
+            if match.group(1) or match.group(3):
+                speaker = "luoyonghao"
+            else:
+                speaker = "wangziru"
             dialogues.append(Dialogue(
                 speaker=speaker,
                 text=text.strip(),
@@ -234,11 +239,16 @@ class MiniMaxTTSService(BaseTTSService):
 
         return sorted(audio_parts)
 
-    def merge_audio(self, audio_parts: List[str], output_path: str) -> bool:
-        """使用 FFmpeg 拼接音频"""
+    def merge_audio(self, audio_parts: List[str], output_path: str, skip_existing: bool = True) -> bool:
+        """使用 FFmpeg 拼接音频（重新编码，避免文件头损坏问题）"""
         if not audio_parts:
             print("没有音频片段可拼接")
             return False
+
+        # 如果输出已存在且跳过，跳过合并
+        if skip_existing and os.path.exists(output_path):
+            print(f"已存在，跳过合并: {output_path}")
+            return True
 
         audio_parts.sort(key=lambda x: int(
             os.path.basename(x).split('_')[1].split('.')[0]
@@ -249,31 +259,71 @@ class MiniMaxTTSService(BaseTTSService):
             for path in audio_parts:
                 f.write(f"file '{os.path.abspath(path)}'\n")
 
+        # 重新编码合并，忽略文件头问题
         cmd = [
             "ffmpeg", "-y",
             "-f", "concat",
             "-safe", "0",
             "-i", list_file,
-            "-c", "copy",
+            "-acodec", "libmp3lame",
+            "-q:a", "2",
+            "-ar", "44100",
+            "-ac", "2",
             output_path
         ]
         result = subprocess.run(cmd, capture_output=True, text=True)
 
         if result.returncode != 0:
-            cmd = [
-                "ffmpeg", "-y",
-                "-f", "concat",
-                "-safe", "0",
-                "-i", list_file,
-                "-acodec", "libmp3lame",
-                "-q:a", "2",
-                output_path
-            ]
-            subprocess.run(cmd, check=True)
+            print(f"合并失败: {result.stderr[-300:]}")
+            os.remove(list_file)
+            return False
 
         os.remove(list_file)
         print(f"拼接完成: {output_path}")
         print(f"共 {len(audio_parts)} 个片段")
+        return True
+
+    def merge_with_intro(self, intro_path: str, body_path: str, output_path: str, skip_existing: bool = True) -> bool:
+        """将 intro 和正文合并"""
+        if not os.path.exists(intro_path):
+            print(f"警告: Intro 文件不存在: {intro_path}")
+            return False
+
+        if not os.path.exists(body_path):
+            print(f"警告: 正文文件不存在: {body_path}")
+            return False
+
+        # 如果输出已存在且跳过，跳过合并
+        if skip_existing and os.path.exists(output_path):
+            print(f"已存在，跳过合并: {output_path}")
+            return True
+
+        # FFmpeg concat 合并
+        list_file = os.path.join(os.path.dirname(body_path), "intro_concat.txt")
+        with open(list_file, "w") as f:
+            f.write(f"file '{os.path.abspath(intro_path)}'\n")
+            f.write(f"file '{os.path.abspath(body_path)}'\n")
+
+        cmd = [
+            "ffmpeg", "-y",
+            "-f", "concat",
+            "-safe", "0",
+            "-i", list_file,
+            "-acodec", "libmp3lame",
+            "-q:a", "2",
+            "-ar", "44100",
+            "-ac", "2",
+            output_path
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        if result.returncode != 0:
+            print(f"合并失败: {result.stderr[-300:]}")
+            os.remove(list_file)
+            return False
+
+        os.remove(list_file)
+        print(f"已添加 Intro: {output_path}")
         return True
 
 

@@ -4,10 +4,59 @@ from typing import Dict, Any, Optional
 from pydantic import BaseModel
 import os
 import logging
+import yaml
 
 # 加载 .env 文件
 from dotenv import load_dotenv
 load_dotenv()
+
+# ===== 提示词加载 =====
+PROMPTS_FILE = os.path.join(os.path.dirname(__file__), "..", "prompts.yaml")
+
+
+def _load_prompts() -> dict:
+    """从 prompts.yaml 加载提示词"""
+    try:
+        with open(PROMPTS_FILE, "r", encoding="utf-8") as f:
+            return yaml.safe_load(f)
+    except FileNotFoundError:
+        logger.warning(f"提示词配置文件不存在: {PROMPTS_FILE}")
+        return {}
+
+
+def _get_prompt(key: str, default: str = "") -> str:
+    """获取提示词，支持回退到默认值"""
+    prompts = _load_prompts()
+    return prompts.get(key, default)
+
+
+# 从配置文件加载提示词
+PROMPTS = _load_prompts()
+
+LUO_SYSTEM_PROMPT = PROMPTS.get("luo_system_prompt", "")
+ZIRU_SYSTEM_PROMPT = PROMPTS.get("ziru_system_prompt", "")
+PODCAST_SYSTEM_PROMPT = PROMPTS.get("podcast_system_prompt", "")
+PODCAST_USER_TEMPLATE = PROMPTS.get("podcast_user_template", """请根据以下科技新闻，生成一期脱口秀风格播客逐字稿正文部分。
+
+新闻素材：
+{news_text}
+
+要求：
+1. 直接开始讨论新闻，不需要开场白
+2. 围绕每条新闻展开讨论，老罗犀利点评，自如专业分析
+3. 每条新闻讨论2-3轮对话
+4. 适当引用新闻中的关键信息
+5. 最后有结束语
+
+请直接输出对话内容正文。""")
+
+# 固定开场白（不传给 LLM）
+INTRO_TEXT = PROMPTS.get("intro_text", "")
+
+
+def get_intro() -> str:
+    """获取固定开场白"""
+    return INTRO_TEXT
 
 logger = logging.getLogger(__name__)
 
@@ -86,98 +135,6 @@ class DeepSeekService:
             raise
 
 
-# ===== 人设 Prompt =====
-
-LUO_SYSTEM_PROMPT = """你是罗永浩，中国知名科技评论人和企业家，以犀利、直接、幽默的说话风格著称。
-
-## 你的特点
-
-**语言风格：**
-- 犀利直接，敢说真话
-- 幽默风趣，经常用自嘲和讽刺
-- 说话有节奏感，像脱口秀
-- 喜欢用生动的比喻
-
-**观点特点：**
-- 对产品有极高审美标准
-- 批判精神强，但有建设性
-- 关注用户体验和细节
-- 对行业乱象深恶痛绝
-
-**常用表达：**
-- "说实话..."
-- "我跟你讲..."
-- "这就是典型的..."
-- "你想想看..."
-- "太扯了"
-
-## 对话规则
-
-1. 双人交替发言
-2. 老罗负责犀利点评和提出尖锐问题
-3. 不要过度煽情，不要说空话套话
-4. 自然引入话题，过渡要自然"""
-
-
-ZIRU_SYSTEM_PROMPT = """你是王自如，年轻的科技产品经理和评测人，以专业、客观、理性的分析风格著称。
-
-## 你的特点
-
-**语言风格：**
-- 专业客观，注重数据和事实
-- 表达清晰，逻辑性强
-- 温和理性，不偏激
-- 善于从产品和技术角度分析
-
-**观点特点：**
-- 关注技术实现和产品逻辑
-- 理解商业和市场因素
-- 平衡用户需求和技术限制
-- 对新技术保持开放
-
-**常用表达：**
-- "从产品角度来看..."
-- "技术上来说..."
-- "这个设计的逻辑是..."
-- "我觉得..."
-- "确实..."
-
-## 对话规则
-
-1. 双人交替发言
-2. 自如负责专业分析和技术解读
-3. 补充老罗没有覆盖的角度
-4. 保持理性和客观"""
-
-
-PODCAST_SYSTEM_PROMPT = """你是两位资深科技评论人：罗永浩（犀利幽默）和王自如（专业理性）。
-
-## 对话形式
-
-- 采用"老罗："和"自如："的对话格式
-- 双人交替发言，每人2-5句话
-- 老罗先开口引入话题
-- 自然过渡，不要生硬
-
-## 内容要求
-
-- 结合具体新闻内容进行分析
-- 老罗负责犀利点评和批评
-- 自如负责专业补充和技术解读
-- 每条新闻至少被两人讨论
-
-## 长度要求
-
-- 10条新闻约4000-5000字
-- 整体播客时长约15-20分钟
-
-## 输出格式
-
-使用以下格式，直接输出对话内容：
-**罗永浩：**xxx
-**王自如：**xxx
-
-不要使用其他格式。"""
 
 
 def generate_podcast_script(
@@ -208,19 +165,8 @@ URL: {item.get('url', '') if isinstance(item, dict) else item.url}
 
     news_text = "\n".join(news_content)
 
-    prompt = f"""请根据以下10条科技新闻，生成一期20分钟的脱口秀风格播客逐字稿。
-
-新闻素材：
-{news_text}
-
-要求：
-1. 老罗先开口，用幽默的语气引入话题
-2. 围绕每条新闻展开讨论，老罗犀利点评，自如专业分析
-3. 每条新闻讨论2-3轮对话
-4. 适当引用新闻中的关键信息
-5. 最后有结束语
-
-请直接输出对话内容。"""
+    # 使用模板生成提示词
+    prompt = PODCAST_USER_TEMPLATE.format(news_text=news_text)
 
     response = llm.generate(
         prompt=prompt,
@@ -247,7 +193,11 @@ def main():
     print(f"获取到 {len(news)} 条新闻")
 
     print("\n正在生成播客逐字稿...")
-    script = generate_podcast_script(news)
+    body = generate_podcast_script(news)
+
+    # 添加固定开场白
+    intro = get_intro()
+    script = f"{intro}\n\n{body}"
 
     print(f"\n生成的逐字稿 ({len(script)} 字):\n")
     print("=" * 60)
