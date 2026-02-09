@@ -301,6 +301,121 @@ def merge_audio_only(date: str):
     _prepend_intro(splits_dir, audio_parts, audio_path)
 
 
+def cmd_generate_script(date: str):
+    """
+    单步命令：仅生成逐字稿
+    """
+    base_dir = f"data/output/{date}"
+    news_path = os.path.join(base_dir, "news.txt")
+    talks_path = os.path.join(base_dir, "talks.txt")
+
+    if not os.path.exists(news_path):
+        print(f"错误: news.txt 不存在: {news_path}")
+        return
+
+    print("=" * 70)
+    print(f"生成逐字稿 - {date}")
+    print("=" * 70)
+
+    # 解析 news.txt
+    from app.services.rss import RSSItem
+    news_items = []
+    with open(news_path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    items = content.strip().split("\n\n")
+    for item_text in items:
+        lines = item_text.strip().split("\n")
+        if len(lines) >= 3:
+            news_items.append(RSSItem(
+                title=lines[0].split(":", 1)[1].strip() if ":" in lines[0] else "",
+                url=lines[1].replace("URL:", "").strip(),
+                summary=lines[2].replace("摘要:", "").strip()
+            ))
+
+    print(f"已加载 {len(news_items)} 条新闻")
+
+    # 生成逐字稿
+    from app.services.llm import generate_podcast_script, get_intro
+    body = generate_podcast_script(news_items)
+    intro = get_intro()
+    script = f"{intro}\n\n{body}"
+
+    with open(talks_path, "w", encoding="utf-8") as f:
+        f.write(script)
+
+    print(f"逐字稿已生成: {talks_path}")
+    print(f"字数: {len(script)}")
+
+
+def cmd_generate_audio(date: str):
+    """
+    单步命令：仅生成音频（需要逐字稿）
+    """
+    base_dir = f"data/output/{date}"
+    talks_path = os.path.join(base_dir, "talks.txt")
+    splits_dir = os.path.join(base_dir, "splits")
+
+    if not os.path.exists(talks_path):
+        print(f"错误: talks.txt 不存在: {talks_path}")
+        return
+
+    print("=" * 70)
+    print(f"生成音频 - {date}")
+    print("=" * 70)
+
+    from app.services.tts import MiniMaxTTSService
+    tts = MiniMaxTTSService()
+
+    dialogues = tts.parse_dialogues(talks_path)
+    print(f"解析到 {len(dialogues)} 段对话")
+
+    audio_parts = tts.batch_generate(dialogues, splits_dir)
+
+    if audio_parts:
+        print(f"已生成 {len(audio_parts)} 个音频片段")
+    else:
+        print("没有新片段需要生成")
+
+
+def cmd_generate_shownotes(date: str):
+    """
+    单步命令：仅生成 show_notes.md
+    """
+    base_dir = f"data/output/{date}"
+    news_path = os.path.join(base_dir, "news.txt")
+    show_notes_path = os.path.join(base_dir, "show_notes.md")
+
+    if not os.path.exists(news_path):
+        print(f"错误: news.txt 不存在: {news_path}")
+        return
+
+    print("=" * 70)
+    print(f"生成 show_notes - {date}")
+    print("=" * 70)
+
+    # 解析 news.txt
+    from app.services.rss import RSSItem
+    news_items = []
+    with open(news_path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    items = content.strip().split("\n\n")
+    for item_text in items:
+        lines = item_text.strip().split("\n")
+        if len(lines) >= 3:
+            news_items.append(RSSItem(
+                title=lines[0].split(":", 1)[1].strip() if ":" in lines[0] else "",
+                url=lines[1].replace("URL:", "").strip(),
+                summary=lines[2].replace("摘要:", "").strip()
+            ))
+
+    _generate_show_notes(news_items, show_notes_path, date)
+    print(f"已生成 {len(news_items)} 条新闻记录")
+    tts = MiniMaxTTSService()
+    _prepend_intro(splits_dir, audio_parts, audio_path)
+
+
 def print_help():
     """打印帮助"""
     help_text = """
