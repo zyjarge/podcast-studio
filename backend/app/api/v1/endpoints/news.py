@@ -1,9 +1,13 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.db.session import get_db
-from app.db.models import News
+from app.db.models import News, RSSSource
 from app.schemas.news import NewsResponse
 from typing import List
+import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -17,6 +21,58 @@ def list_news(source_id: int | None = None, limit: int = 100, db: Session = Depe
 
 
 @router.post("/fetch")
-def fetch_news(db: Session = Depends(get_db)):
-    # TODO: 实现 RSS 抓取逻辑，复用 mvp/app/services/rss.py
-    return {"message": "Not implemented yet"}
+async def fetch_news(source_id: int | None = None, db: Session = Depends(get_db)):
+    """抓取 RSS 源新闻"""
+    try:
+        # 导入 RSS 服务
+        from app.services.rss import RSSService
+        
+        rss_service = RSSService()
+        
+        # 获取要抓取的源
+        if source_id:
+            sources = db.query(RSSSource).filter(RSSSource.id == source_id, RSSSource.enabled == True).all()
+        else:
+            sources = db.query(RSSSource).filter(RSSSource.enabled == True).all()
+        
+        if not sources:
+            raise HTTPException(status_code=404, detail="没有找到启用的 RSS 源")
+        
+        new_news_count = 0
+        
+        for source in sources:
+            try:
+                # 抓取新闻
+                items = await rss_service.fetch(source.url, limit=20)
+                
+                for item in items:
+                    # 检查是否已存在（通过 URL）
+                    existing = db.query(News).filter(News.url == item['url']).first()
+                    if existing:
+                        continue
+                    
+                    # 创建新闻记录
+                    news = News(
+                        title=item.get('title', ''),
+                        source=source.name,
+                        url=item.get('url', ''),
+                        summary=item.get('summary', ''),
+                        keywords=item.get('keywords', []),
+                        content=item.get('content', ''),
+                        rss_source_id=source.id
+                    )
+                    db.add(news)
+                    new_news_count += 1
+                
+                db.commit()
+                logger.info(f"从 {source.name} 抓取了 {len(items)} 条新闻")
+                
+            except Exception as e:
+                logger.error(f"抓取 {source.name} 失败: {e}")
+                continue
+        
+        return {"message": f"抓取完成，新增 {new_news_count} 条新闻"}
+        
+    except Exception as e:
+        logger.error(f"抓取新闻失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
