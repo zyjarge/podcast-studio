@@ -12,7 +12,9 @@ import {
   X,
   FileText,
   Volume2,
-  Loader2
+  Loader2,
+  Trash2,
+  AlertTriangle
 } from 'lucide-react'
 import { episodesApi } from '../services/api'
 
@@ -29,6 +31,8 @@ export default function EpisodeList() {
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [newEpisodeTitle, setNewEpisodeTitle] = useState('')
   const [creating, setCreating] = useState(false)
+  const [deleteModal, setDeleteModal] = useState({ show: false, episode: null })
+  const [deleting, setDeleting] = useState(false)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -65,6 +69,22 @@ export default function EpisodeList() {
       setError('创建节目失败')
     } finally {
       setCreating(false)
+    }
+  }
+
+  const handleDeleteEpisode = async () => {
+    if (!deleteModal.episode) return
+    
+    try {
+      setDeleting(true)
+      await episodesApi.delete(deleteModal.episode.id)
+      setEpisodes(episodes.filter(e => e.id !== deleteModal.episode.id))
+      setDeleteModal({ show: false, episode: null })
+    } catch (err) {
+      console.error('Failed to delete episode:', err)
+      setError('删除节目失败')
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -214,6 +234,15 @@ export default function EpisodeList() {
                           <Edit3 className="w-5 h-5" />
                         </button>
                       )}
+                      <button 
+                        className="p-3 bg-cream-100 rounded-full text-red-500 hover:bg-red-100 transition-colors"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setDeleteModal({ show: true, episode })
+                        }}
+                      >
+                        <Trash2 className="w-5 h-5" />
+                      </button>
                     </div>
                   </div>
                 </motion.div>
@@ -277,6 +306,55 @@ export default function EpisodeList() {
                   className="px-4 py-2 bg-accent-coral text-cream-100 rounded-xl font-medium hover:bg-accent-coral/90 transition-colors disabled:opacity-50"
                 >
                   {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : '创建并编辑'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 删除确认弹窗 */}
+      <AnimatePresence>
+        {deleteModal.show && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-ink-900/50 flex items-center justify-center z-50"
+            onClick={() => setDeleteModal({ show: false, episode: null })}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-cream-100 rounded-3xl p-6 w-[400px] shadow-2xl"
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-3 bg-red-100 rounded-full">
+                  <AlertTriangle className="w-6 h-6 text-red-500" />
+                </div>
+                <h2 className="font-display text-xl font-semibold text-ink-300">确认删除</h2>
+              </div>
+              
+              <p className="text-ink-50 mb-6">
+                确定要删除节目 <strong className="text-ink-300">"{deleteModal.episode?.title}"</strong> 吗？此操作不可恢复。
+              </p>
+
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => setDeleteModal({ show: false, episode: null })}
+                  disabled={deleting}
+                  className="px-4 py-2 text-ink-50 hover:bg-cream-200 rounded-xl transition-colors"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={handleDeleteEpisode}
+                  disabled={deleting}
+                  className="px-4 py-2 bg-red-500 text-white rounded-xl font-medium hover:bg-red-600 transition-colors disabled:opacity-50"
+                >
+                  {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : '确认删除'}
                 </button>
               </div>
             </motion.div>
