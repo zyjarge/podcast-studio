@@ -11,7 +11,7 @@ langgraph==0.1.2
 openai>=1.0.0
 
 # ===== HTTP 客户端 =====
-httpx==0.26.0
+httpx[socks]==0.26.0
 
 # ===== 数据验证 & 配置 =====
 pydantic==2.6.1

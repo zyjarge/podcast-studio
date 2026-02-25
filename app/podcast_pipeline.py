@@ -58,7 +58,10 @@ def run_pipeline(date: str = None, rss_url: str = None, no_tts: bool = False, sk
         date = datetime.now().strftime("%Y-%m-%d")
 
     if rss_url is None:
-        rss_url = "https://kejikuaixun.blogspot.com/feeds/posts/default?alt=rss"
+        rss_url = os.getenv("RSS_URL", "")
+        if not rss_url:
+            print("错误: 请在 .env 文件中配置 RSS_URL")
+            return
 
     # 目录结构
     base_dir = f"data/output/{date}"
@@ -112,7 +115,7 @@ def run_pipeline(date: str = None, rss_url: str = None, no_tts: bool = False, sk
         else:
             # 正常抓取
             rss_service = RSSService()
-            news_items = rss_service.fetch_sync(rss_url, limit=20)
+            news_items = rss_service.fetch_sync(rss_url, limit=10)
 
             # 保存新闻源稿
             with open(news_path, "w", encoding="utf-8") as f:
@@ -436,6 +439,9 @@ def print_help():
   --merge-only     仅合并音频
   --no-tts         跳过 TTS 阶段（仅新闻+逐字稿）
   --skip-fetch     跳过新闻抓取，使用已有的 news.txt
+  --script         单步：仅生成逐字稿（需要 news.txt）
+  --audio          单步：仅生成音频片段（需要 talks.txt）
+  --shownotes      单步：仅生成 show_notes（需要 news.txt）
   --rss URL        指定 RSS 订阅地址
 
 【使用示例】
@@ -449,21 +455,18 @@ def print_help():
   # 3. 指定 RSS 源
   python podcast_pipeline.py --rss https://example.com/feed.rss
 
-  # 4. 仅生成逐字稿（跳过 TTS）
-  python podcast_pipeline.py --no-tts
-  python podcast_pipeline.py 2026-01-17 --no-tts
+  # 4. 单步命令
+  python podcast_pipeline.py --script           # 生成逐字稿
+  python podcast_pipeline.py --audio            # 生成音频片段
+  python podcast_pipeline.py --shownotes        # 生成 show_notes
 
-  # 5. 使用已有新闻，直接生成逐字稿
-  python podcast_pipeline.py --skip-fetch
-  python podcast_pipeline.py 2026-01-17 --skip-fetch
+  # 5. 跳过某些阶段
+  python podcast_pipeline.py --no-tts           # 跳过 TTS
+  python podcast_pipeline.py --skip-fetch       # 跳过抓取，使用 news.txt
+  python podcast_pipeline.py --audio-only       # 跳过 LLM，直接 TTS
 
-  # 6. 仅生成音频（逐字稿已存在）
-  python podcast_pipeline.py --audio-only
-  python podcast_pipeline.py 2026-01-17 --audio-only
-
-  # 7. 仅合并音频（片段已存在）
+  # 6. 仅合并音频
   python podcast_pipeline.py --merge-only
-  python podcast_pipeline.py 2026-01-17 --merge-only
 
 【输出目录结构】
 
@@ -501,6 +504,9 @@ def main():
     merge_only = False
     no_tts = False
     skip_fetch = False
+    cmd_script = False
+    cmd_audio = False
+    cmd_shownotes = False
 
     i = 0
     while i < len(args):
@@ -524,6 +530,15 @@ def main():
         elif arg == "--skip-fetch":
             skip_fetch = True
             i += 1
+        elif arg == "--script":
+            cmd_script = True
+            i += 1
+        elif arg == "--audio":
+            cmd_audio = True
+            i += 1
+        elif arg == "--shownotes":
+            cmd_shownotes = True
+            i += 1
         else:
             i += 1
 
@@ -531,8 +546,14 @@ def main():
     if date is None:
         date = datetime.now().strftime("%Y-%m-%d")
 
-    # 执行
-    if merge_only:
+    # 执行单步命令
+    if cmd_script:
+        cmd_generate_script(date)
+    elif cmd_audio:
+        cmd_generate_audio(date)
+    elif cmd_shownotes:
+        cmd_generate_shownotes(date)
+    elif merge_only:
         merge_audio_only(date)
     elif audio_only:
         generate_audio_only(date)
