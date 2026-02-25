@@ -90,3 +90,103 @@ def reorder_episode_news(episode_id: int, news_orders: List[dict], db: Session =
             en.order = item["order"]
     db.commit()
     return {"ok": True}
+
+
+@router.post("/{episode_id}/news/{news_id}/generate-script")
+def generate_script(
+    episode_id: int,
+    news_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Generate script for a specific news item in an episode
+    """
+    episode_news = db.query(EpisodeNews).filter(
+        EpisodeNews.episode_id == episode_id,
+        EpisodeNews.news_id == news_id
+    ).first()
+    
+    if not episode_news:
+        raise HTTPException(status_code=404, detail="News not found in episode")
+    
+    # Update status to generating
+    episode_news.status = NewsStatus.GENERATING
+    db.commit()
+    
+    # TODO: Call LLM service to generate script
+    # This should use the podcast service
+    
+    # Placeholder: mark as done
+    episode_news.status = NewsStatus.SCRIPT_DONE
+    episode_news.script = f"Generated script for news {news_id}"
+    db.commit()
+    
+    return {"script": episode_news.script, "status": episode_news.status.value}
+
+
+@router.post("/{episode_id}/news/{news_id}/generate-audio")
+def generate_audio(
+    episode_id: int,
+    news_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Generate audio for a specific news item in an episode
+    """
+    episode_news = db.query(EpisodeNews).filter(
+        EpisodeNews.episode_id == episode_id,
+        EpisodeNews.news_id == news_id
+    ).first()
+    
+    if not episode_news:
+        raise HTTPException(status_code=404, detail="News not found in episode")
+    
+    if not episode_news.script:
+        raise HTTPException(status_code=400, detail="Script not generated yet")
+    
+    # Update status to generating
+    episode_news.status = NewsStatus.GENERATING
+    db.commit()
+    
+    # TODO: Call TTS service to generate audio
+    # This should use the podcast service
+    
+    # Placeholder: mark as done
+    episode_news.status = NewsStatus.AUDIO_DONE
+    episode_news.audio_url = f"/audio/{episode_id}/{news_id}.mp3"
+    db.commit()
+    
+    return {"audio_url": episode_news.audio_url, "status": episode_news.status.value}
+
+
+@router.post("/{episode_id}/generate-all")
+def generate_all(
+    episode_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Generate script and audio for all pending news in an episode
+    """
+    episode = db.query(Episode).filter(Episode.id == episode_id).first()
+    if not episode:
+        raise HTTPException(status_code=404, detail="Episode not found")
+    
+    pending_news = db.query(EpisodeNews).filter(
+        EpisodeNews.episode_id == episode_id,
+        EpisodeNews.status == NewsStatus.PENDING
+    ).all()
+    
+    results = []
+    for en in pending_news:
+        en.status = NewsStatus.GENERATING
+        db.commit()
+        
+        # Placeholder: generate script and audio
+        en.status = NewsStatus.AUDIO_DONE
+        en.script = f"[Generated script for news {en.news_id}]"
+        en.audio_url = f"/audio/{episode_id}/{en.news_id}.mp3"
+        db.commit()
+        
+        results.append({"news_id": en.news_id, "status": en.status.value})
+    
+    return {"generated": len(results), "results": results}
