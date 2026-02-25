@@ -286,11 +286,32 @@ export default function EpisodeDetail() {
       <div className="flex-1 p-8 overflow-y-auto">
         {selectedNews ? (
           <div>
-            <h2 className="text-2xl font-display font-semibold text-ink-300 mb-6">
+            <h2 className="text-2xl font-display font-semibold text-ink-300 mb-2">
               {selectedNews.news?.title || `新闻 #${selectedNews.news_id}`}
             </h2>
             
-            {/* 操作按钮 */}
+            <p className="text-sm text-ink-50 mb-6">
+              来源：{selectedNews.news?.source || '-'}
+            </p>
+
+            {/* 新闻摘要 */}
+            <div className="bg-cream-200 rounded-xl p-6 mb-6">
+              <h3 className="font-medium text-ink-300 mb-3">新闻摘要</h3>
+              <p className="text-sm text-ink-50 whitespace-pre-wrap">
+                {selectedNews.news?.summary || '暂无摘要'}
+              </p>
+              
+              {selectedNews.news?.content && (
+                <>
+                  <h3 className="font-medium text-ink-300 mt-6 mb-3">新闻正文</h3>
+                  <pre className="text-sm text-ink-50 whitespace-pre-wrap max-h-64 overflow-y-auto">
+                    {selectedNews.news.content}
+                  </pre>
+                </>
+              )}
+            </div>
+            
+            {/* 操作按钮 -->
             <div className="flex gap-3 mb-6">
               <button
                 onClick={() => generateScript(selectedNews.id)}
