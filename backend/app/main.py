@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from app.core.config import settings
 from app.db.session import engine, Base
+from app.db import models  # noqa: F401
 
 app = FastAPI(title="Podcast Studio API")
 
