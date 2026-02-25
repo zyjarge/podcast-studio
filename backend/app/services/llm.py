@@ -1,36 +1,39 @@
 """DeepSeek LLM 服务 - 使用 OpenAI SDK"""
-from openai import OpenAI
-from typing import Dict, Any, Optional
-from pydantic import BaseModel
 import os
 import logging
 import yaml
 
-# 加载 .env 文件
+from openai import OpenAI
+from typing import Dict, Any, Optional
+from pydantic import BaseModel
+
+# Load .env file
 from dotenv import load_dotenv
 load_dotenv()
 
-# ===== 提示词加载 =====
-PROMPTS_FILE = os.path.join(os.path.dirname(__file__), "..", "prompts.yaml")
+logger = logging.getLogger(__name__)
+
+# ===== Load prompts =====
+PROMPTS_FILE = os.path.join(os.path.dirname(__file__), "prompts.yaml")
 
 
 def _load_prompts() -> dict:
-    """从 prompts.yaml 加载提示词"""
+    """Load prompts from prompts.yaml"""
     try:
         with open(PROMPTS_FILE, "r", encoding="utf-8") as f:
-            return yaml.safe_load(f)
+            return yaml.safe_load(f) or {}
     except FileNotFoundError:
-        logger.warning(f"提示词配置文件不存在: {PROMPTS_FILE}")
+        logger.warning(f"Prompts config file not found: {PROMPTS_FILE}")
         return {}
 
 
 def _get_prompt(key: str, default: str = "") -> str:
-    """获取提示词，支持回退到默认值"""
+    """Get prompt, fallback to default"""
     prompts = _load_prompts()
     return prompts.get(key, default)
 
 
-# 从配置文件加载提示词
+# Load prompts from config
 PROMPTS = _load_prompts()
 
 LUO_SYSTEM_PROMPT = PROMPTS.get("luo_system_prompt", "")
@@ -50,25 +53,23 @@ PODCAST_USER_TEMPLATE = PROMPTS.get("podcast_user_template", """请根据以下�
 
 请直接输出对话内容正文。""")
 
-# 固定开场白（不传给 LLM）
+# Fixed intro (not passed to LLM)
 INTRO_TEXT = PROMPTS.get("intro_text", "")
 
 
 def get_intro() -> str:
-    """获取固定开场白"""
+    """Get fixed intro"""
     return INTRO_TEXT
-
-logger = logging.getLogger(__name__)
 
 
 class LLMResponse(BaseModel):
-    """LLM 响应"""
+    """LLM Response"""
     text: str
     usage: Optional[Dict[str, int]] = None
 
 
 class DeepSeekService:
-    """DeepSeek API 服务 - 使用 OpenAI SDK"""
+    """DeepSeek API Service - using OpenAI SDK"""
 
     BASE_URL = "https://api.deepseek.com"
     DEFAULT_MODEL = "deepseek-chat"
@@ -89,13 +90,13 @@ class DeepSeekService:
         temperature: float = 0.7
     ) -> LLMResponse:
         """
-        调用 LLM 生成内容
+        Call LLM to generate content
 
         Args:
-            prompt: 用户提示词
-            system_prompt: 系统提示词（人设）
-            max_tokens: 最大 token 数
-            temperature: 温度（0-1）
+            prompt: User prompt
+            system_prompt: System prompt (persona)
+            max_tokens: Max tokens
+            temperature: Temperature (0-1)
 
         Returns:
             LLMResponse
@@ -117,7 +118,7 @@ class DeepSeekService:
                 temperature=temperature
             )
 
-            # 解析响应
+            # Parse response
             text = response.choices[0].message.content
 
             usage = {
@@ -133,84 +134,3 @@ class DeepSeekService:
         except Exception as e:
             logger.error(f"DeepSeek API error: {e}")
             raise
-
-
-
-
-def generate_podcast_script(
-    news_items: list,
-    llm: Optional[DeepSeekService] = None
-) -> str:
-    """
-    生成播客逐字稿
-
-    Args:
-        news_items: 新闻列表 [{title, url, summary, ...}]
-        llm: LLM 服务实例
-
-    Returns:
-        逐字稿文本
-    """
-    if llm is None:
-        llm = DeepSeekService()
-
-    # 构建新闻内容
-    news_content = []
-    for i, item in enumerate(news_items, 1):
-        news_content.append(f"""
-新闻{i}：{item.get('title', '') if isinstance(item, dict) else item.title}
-URL: {item.get('url', '') if isinstance(item, dict) else item.url}
-摘要: {item.get('summary', '') if isinstance(item, dict) else (item.summary if hasattr(item, 'summary') else '')}
-""")
-
-    news_text = "\n".join(news_content)
-
-    # 使用模板生成提示词
-    prompt = PODCAST_USER_TEMPLATE.format(news_text=news_text)
-
-    response = llm.generate(
-        prompt=prompt,
-        system_prompt=PODCAST_SYSTEM_PROMPT,
-        max_tokens=8192,
-        temperature=0.8
-    )
-
-    return response.text
-
-
-def main():
-    """测试函数"""
-    from app.services.rss import RSSService
-    import asyncio
-
-    print("正在获取新闻...")
-    rss_service = RSSService()
-    news = asyncio.run(rss_service.fetch(
-        feed_url="https://kejikuaixun.blogspot.com/feeds/posts/default?alt=rss",
-        limit=20
-    ))
-
-    print(f"获取到 {len(news)} 条新闻")
-
-    print("\n正在生成播客逐字稿...")
-    body = generate_podcast_script(news)
-
-    # 添加固定开场白
-    intro = get_intro()
-    script = f"{intro}\n\n{body}"
-
-    print(f"\n生成的逐字稿 ({len(script)} 字):\n")
-    print("=" * 60)
-    print(script[:3000])
-    print("..." if len(script) > 3000 else "")
-    print("=" * 60)
-
-    # 保存到文件
-    with open("data/scripts/podcast_script.txt", "w", encoding="utf-8") as f:
-        f.write(script)
-    print(f"\n逐字稿已保存到: data/scripts/podcast_script.txt")
-
-
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    main()

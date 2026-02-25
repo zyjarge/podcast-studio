@@ -1,10 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.db.session import get_db
-from app.db.models import Episode, EpisodeNews, NewsStatus
+from app.db.models import Episode, EpisodeNews, News, NewsStatus
 from app.schemas.episode import EpisodeCreate, EpisodeUpdate, EpisodeResponse
 from app.schemas.episode_news import EpisodeNewsResponse
+from app.services.podcast import get_podcast_service
 from typing import List
+import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -93,13 +98,13 @@ def reorder_episode_news(episode_id: int, news_orders: List[dict], db: Session =
 
 
 @router.post("/{episode_id}/news/{news_id}/generate-script")
-def generate_script(
+async def generate_script(
     episode_id: int,
     news_id: int,
     db: Session = Depends(get_db)
 ):
     """
-    Generate script for a specific news item in an episode
+    Generate script for a specific news item in an episode using DeepSeek LLM
     """
     episode_news = db.query(EpisodeNews).filter(
         EpisodeNews.episode_id == episode_id,
@@ -109,29 +114,54 @@ def generate_script(
     if not episode_news:
         raise HTTPException(status_code=404, detail="News not found in episode")
     
+    # Get the news content
+    news = db.query(News).filter(News.id == news_id).first()
+    if not news:
+        raise HTTPException(status_code=404, detail="News not found")
+    
     # Update status to generating
     episode_news.status = NewsStatus.GENERATING
     db.commit()
     
-    # TODO: Call LLM service to generate script
-    # This should use the podcast service
-    
-    # Placeholder: mark as done
-    episode_news.status = NewsStatus.SCRIPT_DONE
-    episode_news.script = f"Generated script for news {news_id}"
-    db.commit()
-    
-    return {"script": episode_news.script, "status": episode_news.status.value}
+    try:
+        # Get podcast service
+        podcast_service = get_podcast_service()
+        
+        # Use custom prompt if available, otherwise use default
+        role_prompt = episode_news.prompt or ""
+        
+        # Generate script using LLM
+        news_content = news.content or news.summary or news.title
+        script = await podcast_service.generate_script(
+            news_content=news_content,
+            role_prompt=role_prompt
+        )
+        
+        episode_news.script = script
+        episode_news.status = NewsStatus.SCRIPT_DONE
+        db.commit()
+        
+        logger.info(f"Generated script for news {news_id}: {len(script)} chars")
+        
+        return {"script": episode_news.script, "status": episode_news.status.value}
+        
+    except Exception as e:
+        logger.error(f"Error generating script: {e}")
+        episode_news.status = NewsStatus.ERROR
+        episode_news.error_message = str(e)
+        db.commit()
+        raise HTTPException(status_code=500, detail=f"Error generating script: {str(e)}")
 
 
 @router.post("/{episode_id}/news/{news_id}/generate-audio")
-def generate_audio(
+async def generate_audio(
     episode_id: int,
     news_id: int,
+    voice_id: str = "luoyonghao",
     db: Session = Depends(get_db)
 ):
     """
-    Generate audio for a specific news item in an episode
+    Generate audio for a specific news item in an episode using MiniMax TTS
     """
     episode_news = db.query(EpisodeNews).filter(
         EpisodeNews.episode_id == episode_id,
@@ -148,19 +178,34 @@ def generate_audio(
     episode_news.status = NewsStatus.GENERATING
     db.commit()
     
-    # TODO: Call TTS service to generate audio
-    # This should use the podcast service
-    
-    # Placeholder: mark as done
-    episode_news.status = NewsStatus.AUDIO_DONE
-    episode_news.audio_url = f"/audio/{episode_id}/{news_id}.mp3"
-    db.commit()
-    
-    return {"audio_url": episode_news.audio_url, "status": episode_news.status.value}
+    try:
+        # Get podcast service
+        podcast_service = get_podcast_service()
+        
+        # Generate audio using TTS
+        audio_path = await podcast_service.generate_audio(
+            script=episode_news.script,
+            voice_id=voice_id
+        )
+        
+        episode_news.status = NewsStatus.AUDIO_DONE
+        episode_news.audio_url = audio_path
+        db.commit()
+        
+        logger.info(f"Generated audio for news {news_id}: {audio_path}")
+        
+        return {"audio_url": episode_news.audio_url, "status": episode_news.status.value}
+        
+    except Exception as e:
+        logger.error(f"Error generating audio: {e}")
+        episode_news.status = NewsStatus.ERROR
+        episode_news.error_message = str(e)
+        db.commit()
+        raise HTTPException(status_code=500, detail=f"Error generating audio: {str(e)}")
 
 
 @router.post("/{episode_id}/generate-all")
-def generate_all(
+async def generate_all(
     episode_id: int,
     db: Session = Depends(get_db)
 ):
@@ -177,16 +222,41 @@ def generate_all(
     ).all()
     
     results = []
+    podcast_service = get_podcast_service()
+    
     for en in pending_news:
-        en.status = NewsStatus.GENERATING
-        db.commit()
-        
-        # Placeholder: generate script and audio
-        en.status = NewsStatus.AUDIO_DONE
-        en.script = f"[Generated script for news {en.news_id}]"
-        en.audio_url = f"/audio/{episode_id}/{en.news_id}.mp3"
-        db.commit()
-        
-        results.append({"news_id": en.news_id, "status": en.status.value})
+        try:
+            # Get news content
+            news = db.query(News).filter(News.id == en.news_id).first()
+            if not news:
+                continue
+            
+            # Generate script
+            en.status = NewsStatus.GENERATING
+            db.commit()
+            
+            news_content = news.content or news.summary or news.title
+            script = await podcast_service.generate_script(news_content=news_content)
+            en.script = script
+            en.status = NewsStatus.SCRIPT_DONE
+            db.commit()
+            
+            # Generate audio
+            en.status = NewsStatus.GENERATING
+            db.commit()
+            
+            audio_path = await podcast_service.generate_audio(script=script)
+            en.status = NewsStatus.AUDIO_DONE
+            en.audio_url = audio_path
+            db.commit()
+            
+            results.append({"news_id": en.news_id, "status": en.status.value})
+            
+        except Exception as e:
+            logger.error(f"Error generating for news {en.news_id}: {e}")
+            en.status = NewsStatus.ERROR
+            en.error_message = str(e)
+            db.commit()
+            results.append({"news_id": en.news_id, "status": "error", "error": str(e)})
     
     return {"generated": len(results), "results": results}
