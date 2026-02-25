@@ -1,2 +1,21 @@
+# 环境变量
 .env
-data
+
+# 数据目录
+data/
+
+# 前端构建产物
+V1/frontend/dist/
+V1/frontend/node_modules/
+V1/frontend/.vite/
+V1/frontend/package-lock.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 系统文件
+.DS_Store
+Thumbs.db
