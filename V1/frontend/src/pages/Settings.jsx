@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import {
   User,
   Mic,
@@ -14,15 +14,27 @@ import {
   Plus,
   Trash2,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Rss,
+  X,
+  Edit3
 } from 'lucide-react'
 
 const tabs = [
   { id: 'profile', label: '主播配置', icon: User },
   { id: 'voice', label: '音色设置', icon: Mic },
+  { id: 'rss', label: 'RSS 源', icon: Rss },
   { id: 'api', label: 'API 配置', icon: Key },
   { id: 'schedule', label: '定时任务', icon: Clock },
   { id: 'notifications', label: '通知设置', icon: Bell },
+]
+
+// RSS 源数据
+const mockRssSources = [
+  { id: 1, name: '科技快讯', url: 'https://kejikuaixun.blogspot.com/feeds/posts/default?alt=rss', count: 12, enabled: true, autoMode: true },
+  { id: 2, name: '36氪', url: 'https://36kr.com/feed', count: 8, enabled: true, autoMode: false },
+  { id: 3, name: '极客公园', url: 'https://www.geekpark.com/feed', count: 6, enabled: true, autoMode: false },
+  { id: 4, name: '爱范儿', url: 'https://www.ifanr.com/feed', count: 5, enabled: false, autoMode: false },
 ]
 
 const voiceSettings = [
@@ -53,14 +65,34 @@ const apiSettings = [
 ]
 
 export default function Settings() {
-  const [activeTab, setActiveTab] = useState('profile')
+  const [activeTab, setActiveTab] = useState('rss')
   const [voices, setVoices] = useState(voiceSettings)
   const [apis, setApis] = useState(apiSettings)
+  const [rssSources, setRssSources] = useState(mockRssSources)
   const [saved, setSaved] = useState(false)
+  const [showRssModal, setShowRssModal] = useState(false)
+  const [editingRss, setEditingRss] = useState(null)
 
   const handleSave = () => {
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
+  }
+
+  // RSS 源操作
+  const toggleRssEnabled = (id) => {
+    setRssSources(rssSources.map(s =>
+      s.id === id ? { ...s, enabled: !s.enabled } : s
+    ))
+  }
+
+  const toggleRssAutoMode = (id) => {
+    setRssSources(rssSources.map(s =>
+      s.id === id ? { ...s, autoMode: !s.autoMode } : s
+    ))
+  }
+
+  const deleteRss = (id) => {
+    setRssSources(rssSources.filter(s => s.id !== id))
   }
 
   return (
@@ -156,6 +188,112 @@ export default function Settings() {
                     </div>
                   </div>
                 </div>
+              </div>
+            </motion.div>
+          )}
+
+          {/* RSS 源管理 */}
+          {activeTab === 'rss' && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-6"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="font-display text-lg font-semibold text-ink-300">RSS 源管理</h2>
+                  <p className="text-sm text-ink-50">配置新闻来源，用于自动抓取和精编模式</p>
+                </div>
+                <button
+                  onClick={() => { setEditingRss(null); setShowRssModal(true) }}
+                  className="flex items-center gap-2 px-4 py-2 bg-accent-coral text-cream-100 rounded-xl font-medium hover:bg-accent-coral/90 transition-colors"
+                >
+                  <Plus className="w-4 h-4" />
+                  添加 RSS 源
+                </button>
+              </div>
+
+              {/* RSS 源列表 */}
+              <div className="space-y-3">
+                {rssSources.map(source => (
+                  <div
+                    key={source.id}
+                    className={`bg-cream-100 rounded-2xl p-5 border transition-colors ${
+                      source.enabled ? 'border-cream-300' : 'border-cream-400 opacity-60'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-start gap-4">
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                          source.enabled ? 'bg-accent-sage/20' : 'bg-cream-200'
+                        }`}>
+                          <Rss className={`w-5 h-5 ${source.enabled ? 'text-accent-sage' : 'text-ink-50'}`} />
+                        </div>
+                        <div>
+                          <h3 className="font-medium text-ink-300">{source.name}</h3>
+                          <p className="text-sm text-ink-50 truncate max-w-md">{source.url}</p>
+                          <div className="flex items-center gap-3 mt-2">
+                            <span className="text-xs text-ink-50">约 {source.count} 条/天</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {/* 启用开关 */}
+                        <button
+                          onClick={() => toggleRssEnabled(source.id)}
+                          className={`w-12 h-6 rounded-full transition-colors relative ${
+                            source.enabled ? 'bg-accent-sage' : 'bg-cream-400'
+                          }`}
+                        >
+                          <motion.div
+                            animate={{ x: source.enabled ? 24 : 2 }}
+                            transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                            className="w-5 h-5 bg-white rounded-full shadow-sm"
+                          />
+                        </button>
+
+                        {/* 自动模式 */}
+                        <button
+                          onClick={() => toggleRssAutoMode(source.id)}
+                          disabled={!source.enabled}
+                          className={`px-3 py-1 rounded-lg text-xs transition-colors ${
+                            source.autoMode && source.enabled
+                              ? 'bg-accent-sage/20 text-accent-sage'
+                              : 'bg-cream-200 text-ink-50'
+                          }`}
+                        >
+                          ☑自动
+                        </button>
+
+                        {/* 编辑 */}
+                        <button
+                          onClick={() => { setEditingRss(source); setShowRssModal(true) }}
+                          className="p-2 hover:bg-cream-200 rounded-xl text-ink-50 hover:text-ink-300"
+                        >
+                          <Edit3 className="w-4 h-4" />
+                        </button>
+
+                        {/* 删除 */}
+                        <button
+                          onClick={() => deleteRss(source.id)}
+                          className="p-2 hover:bg-cream-200 rounded-xl text-ink-50 hover:text-accent-coral"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* 说明 */}
+              <div className="bg-cream-200 rounded-xl p-4">
+                <h4 className="text-sm font-medium text-ink-300 mb-2">说明</h4>
+                <ul className="text-sm text-ink-50 space-y-1">
+                  <li>• <strong>启用：</strong>控制该 RSS 源是否参与新闻抓取</li>
+                  <li>• <strong>☑自动：</strong>自动模式仅抓取标记为"自动"的 RSS 源</li>
+                </ul>
               </div>
             </motion.div>
           )}
@@ -381,6 +519,110 @@ export default function Settings() {
           )}
         </div>
       </div>
+
+      {/* RSS 源添加/编辑弹窗 */}
+      <AnimatePresence>
+        {showRssModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-ink-900/50 flex items-center justify-center z-50"
+            onClick={() => setShowRssModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-cream-100 rounded-3xl p-6 w-[500px] shadow-2xl"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="font-display text-xl font-semibold text-ink-300">
+                  {editingRss ? '编辑 RSS 源' : '添加 RSS 源'}
+                </h2>
+                <button
+                  onClick={() => setShowRssModal(false)}
+                  className="p-2 hover:bg-cream-200 rounded-xl transition-colors"
+                >
+                  <X className="w-5 h-5 text-ink-50" />
+                </button>
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-ink-300 mb-2">源名称</label>
+                  <input
+                    type="text"
+                    defaultValue={editingRss?.name || ''}
+                    placeholder="例如：科技快讯"
+                    className="w-full px-4 py-3 bg-cream-200 border border-cream-400 rounded-xl text-sm focus:outline-none focus:border-accent-coral"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-ink-300 mb-2">RSS URL</label>
+                  <input
+                    type="url"
+                    defaultValue={editingRss?.url || ''}
+                    placeholder="https://example.com/feed.xml"
+                    className="w-full px-4 py-3 bg-cream-200 border border-cream-400 rounded-xl text-sm focus:outline-none focus:border-accent-coral"
+                  />
+                </div>
+                <div className="flex items-center gap-2 pt-2">
+                  <input
+                    type="checkbox"
+                    id="rssEnabled"
+                    defaultChecked={editingRss?.enabled ?? true}
+                    className="w-4 h-4 accent-accent-coral"
+                  />
+                  <label htmlFor="rssEnabled" className="text-sm text-ink-300">启用此源</label>
+                </div>
+                <div className="flex items-center gap-2 pt-2 pb-2">
+                  <input
+                    type="checkbox"
+                    id="rssAutoMode"
+                    defaultChecked={editingRss?.autoMode ?? false}
+                    className="w-4 h-4 accent-accent-sage"
+                  />
+                  <label htmlFor="rssAutoMode" className="text-sm text-ink-300">用于自动模式</label>
+                  <span className="text-xs text-ink-50">(自动模式将抓取此源)</span>
+                </div>
+              </div>
+              <div className="flex justify-end gap-3 mt-6">
+                <button
+                  onClick={() => setShowRssModal(false)}
+                  className="px-4 py-2 text-ink-50 hover:bg-cream-200 rounded-xl transition-colors"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={() => {
+                    if (editingRss) {
+                      // 编辑模式
+                      setRssSources(rssSources.map(s =>
+                        s.id === editingRss.id ? { ...s, name: '已更新' } : s
+                      ))
+                    } else {
+                      // 添加模式
+                      setRssSources([...rssSources, {
+                        id: Date.now(),
+                        name: '新 RSS 源',
+                        url: 'https://example.com',
+                        count: 0,
+                        enabled: true,
+                        autoMode: false
+                      }])
+                    }
+                    setShowRssModal(false)
+                  }}
+                  className="px-4 py-2 bg-accent-coral text-cream-100 rounded-xl font-medium hover:bg-accent-coral/90 transition-colors"
+                >
+                  {editingRss ? '保存' : '添加'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

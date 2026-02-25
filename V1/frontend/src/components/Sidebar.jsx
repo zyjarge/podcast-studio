@@ -10,20 +10,19 @@ import {
   Mic,
   Zap,
   Sparkles,
-  Radio
+  Radio,
+  Plus,
+  List
 } from 'lucide-react'
 
 const navItems = [
-  { path: '/', icon: LayoutDashboard, label: '控制台' },
+  { path: '/', icon: List, label: '节目列表' },
   { path: '/news-pool', icon: Newspaper, label: '新闻池' },
-  { path: '/scripts', icon: FileText, label: '逐字稿' },
-  { path: '/audio', icon: Volume2, label: '音频' },
-  { path: '/integration', icon: Layers, label: '整合' },
-  { path: '/settings', icon: Settings, label: '设置' },
 ]
 
 export default function Sidebar({ currentMode, setCurrentMode }) {
   const location = useLocation()
+  const isEpisodePage = location.pathname.startsWith('/episode/')
 
   return (
     <aside className="fixed left-0 top-0 h-screen w-64 bg-cream-200 border-r border-cream-400 flex flex-col">
@@ -43,41 +42,34 @@ export default function Sidebar({ currentMode, setCurrentMode }) {
       </div>
 
       {/* 模式切换 */}
-      <div className="p-4 border-b border-cream-400">
-        <div className="bg-cream-300 rounded-xl p-1 flex">
-          <button
-            onClick={() => setCurrentMode('refine')}
-            className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all duration-300 flex items-center justify-center gap-2 ${
-              currentMode === 'refine'
-                ? 'bg-cream-100 shadow-sm text-ink-300'
-                : 'text-ink-50 hover:text-ink-300'
-            }`}
-          >
-            <Sparkles className="w-4 h-4" />
-            精编模式
-          </button>
-          <button
-            onClick={() => setCurrentMode('auto')}
-            className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all duration-300 flex items-center justify-center gap-2 ${
-              currentMode === 'auto'
-                ? 'bg-cream-100 shadow-sm text-ink-300'
-                : 'text-ink-50 hover:text-ink-300'
-            }`}
-          >
-            <Zap className="w-4 h-4" />
-            自动模式
-          </button>
+      {isEpisodePage && (
+        <div className="p-4 border-b border-cream-400">
+          <div className="bg-cream-300 rounded-xl p-1 flex">
+            <button
+              onClick={() => setCurrentMode('refine')}
+              className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all duration-300 flex items-center justify-center gap-2 ${
+                currentMode === 'refine'
+                  ? 'bg-cream-100 shadow-sm text-ink-300'
+                  : 'text-ink-50 hover:text-ink-300'
+              }`}
+            >
+              <Sparkles className="w-4 h-4" />
+              精编模式
+            </button>
+            <button
+              onClick={() => setCurrentMode('auto')}
+              className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all duration-300 flex items-center justify-center gap-2 ${
+                currentMode === 'auto'
+                  ? 'bg-cream-100 shadow-sm text-ink-300'
+                  : 'text-ink-50 hover:text-ink-300'
+              }`}
+            >
+              <Zap className="w-4 h-4" />
+              自动模式
+            </button>
+          </div>
         </div>
-        {currentMode === 'auto' && (
-          <motion.p
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="text-xs text-ink-50 mt-2 text-center"
-          >
-            一键自动生成播客
-          </motion.p>
-        )}
-      </div>
+      )}
 
       {/* 导航 */}
       <nav className="flex-1 p-4 overflow-y-auto">
@@ -126,28 +118,13 @@ export default function Sidebar({ currentMode, setCurrentMode }) {
 
       {/* 底部信息 */}
       <div className="p-4 border-t border-cream-400">
-        <div className="bg-cream-300 rounded-xl p-4">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-8 h-8 bg-accent-sage rounded-full flex items-center justify-center">
-              <Mic className="w-4 h-4 text-cream-100" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-ink-300">彪悍罗 & OK王</p>
-              <p className="text-xs text-ink-50">今日待生成</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="flex-1 h-2 bg-cream-400 rounded-full overflow-hidden">
-              <motion.div
-                initial={{ width: 0 }}
-                animate={{ width: '60%' }}
-                transition={{ duration: 1, delay: 0.5 }}
-                className="h-full bg-accent-sage rounded-full"
-              />
-            </div>
-            <span className="text-xs text-ink-50">60%</span>
-          </div>
-        </div>
+        <NavLink
+          to="/settings"
+          className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-cream-300 transition-colors"
+        >
+          <Settings className="w-5 h-5 text-ink-50" />
+          <span className="font-medium text-ink-50">设置</span>
+        </NavLink>
       </div>
     </aside>
   )
