@@ -13,6 +13,7 @@ V1/frontend/package-lock.json
 # IDE
 .idea/
 .vscode/
+.venv/
 *.swp
 *.swo
 
