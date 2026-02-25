@@ -11,6 +11,17 @@ class NewsStatus(str, Enum):
     ERROR = "error"
 
 
+class NewsSummary(BaseModel):
+    """简化的新闻信息"""
+    id: int
+    title: str
+    source: str | None = None
+    summary: str | None = None
+
+    class Config:
+        from_attributes = True
+
+
 class EpisodeNewsBase(BaseModel):
     prompt: str = ""
 
@@ -37,6 +48,7 @@ class EpisodeNewsResponse(EpisodeNewsBase):
     audio_url: str
     error_message: str | None
     updated_at: datetime
+    news: NewsSummary | None = None
 
     class Config:
         from_attributes = True

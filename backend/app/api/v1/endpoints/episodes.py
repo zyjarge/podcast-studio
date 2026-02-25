@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from app.db.session import get_db
 from app.db.models import Episode, EpisodeNews, News, NewsStatus
 from app.schemas.episode import EpisodeCreate, EpisodeUpdate, EpisodeResponse
@@ -60,7 +60,9 @@ def delete_episode(episode_id: int, db: Session = Depends(get_db)):
 
 @router.get("/{episode_id}/news", response_model=List[EpisodeNewsResponse])
 def list_episode_news(episode_id: int, db: Session = Depends(get_db)):
-    return db.query(EpisodeNews).filter(EpisodeNews.episode_id == episode_id).order_by(EpisodeNews.order).all()
+    return db.query(EpisodeNews).options(
+        joinedload(EpisodeNews.news)
+    ).filter(EpisodeNews.episode_id == episode_id).order_by(EpisodeNews.order).all()
 
 
 @router.post("/{episode_id}/news")
