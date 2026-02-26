@@ -111,13 +111,30 @@ export default function Settings() {
     }
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (activeTab === 'api') {
-      alert('API Key 已修改，需要手动在服务器上更新环境变量后重启后端服务才能生效。\n\n环境变量文件位置：backend/.env')
+      // 保存 API Key
+      for (const api of apiKeyValues) {
+        if (api.value) {
+          try {
+            await settingsApi.updateEnv(api.key, api.value)
+          } catch (err) {
+            console.error(`Failed to save ${api.key}:`, err)
+          }
+        }
+      }
+      alert('API Key 已保存！请重启后端服务以生效。')
     }
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
+
+  // API Key 表单值
+  const [apiKeyValues, setApiKeyValues] = useState([
+    { key: 'DEEPSEEK_API_KEY', value: '' },
+    { key: 'MINIMAX_API_KEY', value: '' },
+    { key: 'ELEVENLABS_API_KEY', value: '' },
+  ])
 
   // RSS 源操作
   const toggleRssEnabled = async (id) => {
@@ -411,7 +428,7 @@ export default function Settings() {
                 { id: 'deepseek', name: 'DeepSeek API', key: 'DEEPSEEK_API_KEY', desc: '用于生成播客脚本' },
                 { id: 'minimax', name: 'MiniMax API', key: 'MINIMAX_API_KEY', desc: '用于语音合成（TTS）' },
                 { id: 'elevenlabs', name: 'ElevenLabs API', key: 'ELEVENLABS_API_KEY', desc: '备用语音合成' },
-              ].map(api => (
+              ].map((api, index) => (
                 <div key={api.id} className="bg-cream-100 rounded-2xl p-6 border border-cream-300">
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-3">
@@ -441,6 +458,12 @@ export default function Settings() {
                     <label className="block text-xs text-ink-50 mb-2">API Key</label>
                     <input
                       type="password"
+                      value={apiKeyValues[index].value}
+                      onChange={(e) => {
+                        const newValues = [...apiKeyValues]
+                        newValues[index].value = e.target.value
+                        setApiKeyValues(newValues)
+                      }}
                       placeholder="请输入 API Key"
                       className="w-full px-3 py-2 bg-cream-200 border border-cream-400 rounded-xl text-sm focus:outline-none focus:border-accent-coral"
                     />
@@ -452,9 +475,7 @@ export default function Settings() {
               {/* 说明 */}
               <div className="bg-cream-200 rounded-xl p-4">
                 <p className="text-sm text-ink-50">
-                  <strong>注意：</strong> 修改 API Key 后需要重启后端服务才能生效。
-                  <br />
-                  当前状态从服务器环境变量读取。
+                  <strong>提示：</strong> 填写 API Key 后点击角"保存设置右上"，会自动保存到后端 .env 文件。保存后需<strong>重启后端服务</strong>才能生效。
                 </p>
               </div>
             </motion.div>
