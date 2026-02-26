@@ -21,7 +21,7 @@ import {
   Loader2,
   RefreshCw
 } from 'lucide-react'
-import { sourcesApi, newsApi } from '../services/api'
+import { sourcesApi, newsApi, rssParserApi } from '../services/api'
 
 const tabs = [
   { id: 'profile', label: '主播配置', icon: User },
@@ -200,23 +200,13 @@ export default function Settings() {
     
     setParsing(true)
     try {
-      const response = await fetch(rssForm.url)
-      const text = await response.text()
-      
-      // 解析 <title> 标签
-      const titleMatch = text.match(/<title><!\[CDATA\[([^\]]+)\]\]><\/title>|<title>([^<]+)<\/title>/i)
-      
-      if (titleMatch) {
-        const title = titleMatch[1] || titleMatch[2]
-        // 清理标题（去掉 RSS 源名称通常包含的后缀）
-        const cleanTitle = title.replace(/ - RSS$/, '').replace(/ \| .+$/, '').trim()
-        setRssForm({ ...rssForm, name: cleanTitle })
-      } else {
-        alert('无法解析标题，请手动输入')
+      const result = await rssParserApi.parseUrl(rssForm.url)
+      if (result.title) {
+        setRssForm({ ...rssForm, name: result.title })
       }
     } catch (err) {
       console.error('Parse error:', err)
-      alert('解析失败，请检查 URL 是否正确')
+      alert(err.message || '解析失败，请检查 URL 是否正确')
     } finally {
       setParsing(false)
     }

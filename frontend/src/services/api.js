@@ -46,6 +46,11 @@ export const sourcesApi = {
   delete: (id) => request(`/sources/${id}`, { method: 'DELETE' }),
 }
 
+// RSS Parser API
+export const rssParserApi = {
+  parseUrl: (url) => request(`/rss/parse-rss?url=${encodeURIComponent(url)}`),
+}
+
 // News API
 export const newsApi = {
   list: (sourceId) => {
