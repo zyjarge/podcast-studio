@@ -206,6 +206,25 @@ export default function NewsPool() {
 
       {/* RSS 源标签 - 可点击筛选 (多选) */}
       <div className="flex gap-2 mb-6 flex-wrap">
+        {/* 全部/全不选 切换按钮 */}
+        <button
+          onClick={() => {
+            if (selectedSource.length === sources.length) {
+              setSelectedSource([]) // 全不选
+            } else {
+              setSelectedSource(sources.map(s => s.name)) // 全选
+            }
+          }}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors ${
+            selectedSource.length === sources.length && sources.length > 0
+              ? 'bg-accent-sage text-white'
+              : 'bg-cream-200 text-ink-300 hover:bg-cream-300'
+          }`}
+        >
+          <Rss className="w-4 h-4" />
+          <span>{selectedSource.length === sources.length && sources.length > 0 ? '全不选' : '全部'}</span>
+        </button>
+        
         {sources.map(source => {
           const isSelected = selectedSource.includes(source.name)
           const count = newsBySource[source.name]?.length || 0
