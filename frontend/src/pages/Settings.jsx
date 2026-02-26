@@ -112,6 +112,9 @@ export default function Settings() {
   }
 
   const handleSave = () => {
+    if (activeTab === 'api') {
+      alert('API Key 已修改，需要手动在服务器上更新环境变量后重启后端服务才能生效。\n\n环境变量文件位置：backend/.env')
+    }
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
