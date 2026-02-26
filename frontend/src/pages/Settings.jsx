@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   User,
@@ -17,8 +17,11 @@ import {
   AlertCircle,
   Rss,
   X,
-  Edit3
+  Edit3,
+  Loader2,
+  RefreshCw
 } from 'lucide-react'
+import { sourcesApi, newsApi } from '../services/api'
 
 const tabs = [
   { id: 'profile', label: '主播配置', icon: User },
@@ -27,14 +30,6 @@ const tabs = [
   { id: 'api', label: 'API 配置', icon: Key },
   { id: 'schedule', label: '定时任务', icon: Clock },
   { id: 'notifications', label: '通知设置', icon: Bell },
-]
-
-// RSS 源数据
-const mockRssSources = [
-  { id: 1, name: '科技快讯', url: 'https://kejikuaixun.blogspot.com/feeds/posts/default?alt=rss', count: 12, enabled: true, autoMode: true },
-  { id: 2, name: '36氪', url: 'https://36kr.com/feed', count: 8, enabled: true, autoMode: false },
-  { id: 3, name: '极客公园', url: 'https://www.geekpark.com/feed', count: 6, enabled: true, autoMode: false },
-  { id: 4, name: '爱范儿', url: 'https://www.ifanr.com/feed', count: 5, enabled: false, autoMode: false },
 ]
 
 const voiceSettings = [
@@ -68,10 +63,37 @@ export default function Settings() {
   const [activeTab, setActiveTab] = useState('rss')
   const [voices, setVoices] = useState(voiceSettings)
   const [apis, setApis] = useState(apiSettings)
-  const [rssSources, setRssSources] = useState(mockRssSources)
+  const [rssSources, setRssSources] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [fetching, setFetching] = useState(false)
   const [saved, setSaved] = useState(false)
   const [showRssModal, setShowRssModal] = useState(false)
   const [editingRss, setEditingRss] = useState(null)
+  const [error, setError] = useState(null)
+
+  // RSS 表单状态
+  const [rssForm, setRssForm] = useState({ name: '', url: '', enabled: true, auto_mode: false })
+
+  useEffect(() => {
+    if (activeTab === 'rss') {
+      fetchRssSources()
+    }
+  }, [activeTab])
+
+  const fetchRssSources = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      const data = await sourcesApi.list()
+      setRssSources(data)
+    } catch (err) {
+      console.error('Failed to fetch RSS sources:', err)
+      setError('加载 RSS 源失败')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const handleSave = () => {
     setSaved(true)
@@ -79,20 +101,96 @@ export default function Settings() {
   }
 
   // RSS 源操作
-  const toggleRssEnabled = (id) => {
-    setRssSources(rssSources.map(s =>
-      s.id === id ? { ...s, enabled: !s.enabled } : s
-    ))
+  const toggleRssEnabled = async (id) => {
+    const source = rssSources.find(s => s.id === id)
+    if (!source) return
+    
+    try {
+      await sourcesApi.update(id, { enabled: !source.enabled })
+      setRssSources(rssSources.map(s =>
+        s.id === id ? { ...s, enabled: !s.enabled } : s
+      ))
+    } catch (err) {
+      console.error('Failed to toggle RSS enabled:', err)
+      setError('更新失败')
+    }
   }
 
-  const toggleRssAutoMode = (id) => {
-    setRssSources(rssSources.map(s =>
-      s.id === id ? { ...s, autoMode: !s.autoMode } : s
-    ))
+  const toggleRssAutoMode = async (id) => {
+    const source = rssSources.find(s => s.id === id)
+    if (!source) return
+    
+    try {
+      await sourcesApi.update(id, { auto_mode: !source.auto_mode })
+      setRssSources(rssSources.map(s =>
+        s.id === id ? { ...s, auto_mode: !s.auto_mode } : s
+      ))
+    } catch (err) {
+      console.error('Failed to toggle RSS auto mode:', err)
+      setError('更新失败')
+    }
   }
 
-  const deleteRss = (id) => {
-    setRssSources(rssSources.filter(s => s.id !== id))
+  const deleteRss = async (id) => {
+    if (!confirm('确定要删除这个 RSS 源吗？')) return
+    
+    try {
+      await sourcesApi.delete(id)
+      setRssSources(rssSources.filter(s => s.id !== id))
+    } catch (err) {
+      console.error('Failed to delete RSS source:', err)
+      setError('删除失败')
+    }
+  }
+
+  const handleRssSubmit = async (e) => {
+    e.preventDefault()
+    setSaving(true)
+    
+    try {
+      if (editingRss) {
+        // 更新
+        await sourcesApi.update(editingRss.id, rssForm)
+      } else {
+        // 创建
+        await sourcesApi.create(rssForm)
+      }
+      
+      await fetchRssSources()
+      setShowRssModal(false)
+      setEditingRss(null)
+      setRssForm({ name: '', url: '', enabled: true, auto_mode: false })
+    } catch (err) {
+      console.error('Failed to save RSS source:', err)
+      setError('保存失败')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleFetchNews = async (sourceId) => {
+    setFetching(true)
+    try {
+      const result = await newsApi.fetch(sourceId)
+      alert(result.message || '抓取完成')
+      await fetchRssSources()
+    } catch (err) {
+      console.error('Failed to fetch news:', err)
+      setError('抓取新闻失败')
+    } finally {
+      setFetching(false)
+    }
+  }
+
+  const openEditModal = (source) => {
+    setEditingRss(source)
+    setRssForm({
+      name: source.name,
+      url: source.url,
+      enabled: source.enabled,
+      auto_mode: source.auto_mode
+    })
+    setShowRssModal(true)
   }
 
   return (
@@ -100,17 +198,8 @@ export default function Settings() {
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="font-display text-2xl font-semibold text-ink-300 mb-1">设置</h1>
-          <p className="text-sm text-ink-50">配置主播信息、音色、API 和定时任务</p>
+          <p className="text-sm text-ink-50">配置主播信息，音色、API 和定时任务</p>
         </div>
-        <motion.button
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
-          onClick={handleSave}
-          className="flex items-center gap-2 px-4 py-2 bg-accent-coral text-cream-100 rounded-xl font-medium hover:bg-accent-coral/90 transition-colors"
-        >
-          {saved ? <CheckCircle2 className="w-4 h-4" /> : <Save className="w-4 h-4" />}
-          {saved ? '已保存' : '保存设置'}
-        </motion.button>
       </div>
 
       <div className="flex gap-8">
@@ -141,57 +230,6 @@ export default function Settings() {
 
         {/* 右侧内容 */}
         <div className="flex-1">
-          {/* 主播配置 */}
-          {activeTab === 'profile' && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="space-y-6"
-            >
-              <div className="bg-cream-100 rounded-2xl p-6 border border-cream-300">
-                <h2 className="font-display text-lg font-semibold text-ink-300 mb-4">主播信息</h2>
-                <div className="grid grid-cols-2 gap-6">
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-ink-300 mb-2">主播名称</label>
-                      <input
-                        type="text"
-                        defaultValue="彪悍罗"
-                        className="w-full px-4 py-3 bg-cream-200 border border-cream-400 rounded-xl text-sm focus:outline-none focus:border-accent-coral"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-ink-300 mb-2">风格描述</label>
-                      <textarea
-                        rows={3}
-                        defaultValue="犀利、直接、幽默风格，喜欢用生动的例子和比喻来解释技术概念"
-                        className="w-full px-4 py-3 bg-cream-200 border border-cream-400 rounded-xl text-sm focus:outline-none focus:border-accent-coral resize-none"
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-ink-300 mb-2">主播名称</label>
-                      <input
-                        type="text"
-                        defaultValue="OK王"
-                        className="w-full px-4 py-3 bg-cream-200 border border-cream-400 rounded-xl text-sm focus:outline-none focus:border-accent-sage"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-ink-300 mb-2">风格描述</label>
-                      <textarea
-                        rows={3}
-                        defaultValue="专业、客观、理性风格，擅长分析技术趋势和行业影响"
-                        className="w-full px-4 py-3 bg-cream-200 border border-cream-400 rounded-xl text-sm focus:outline-none focus:border-accent-sage resize-none"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          )}
-
           {/* RSS 源管理 */}
           {activeTab === 'rss' && (
             <motion.div
@@ -199,328 +237,142 @@ export default function Settings() {
               animate={{ opacity: 1, y: 0 }}
               className="space-y-6"
             >
+              {/* 错误提示 */}
+              {error && (
+                <div className="p-4 bg-red-100 text-red-600 rounded-xl flex items-center gap-2">
+                  <AlertCircle className="w-5 h-5" />
+                  {error}
+                  <button onClick={() => setError(null)} className="ml-auto">×</button>
+                </div>
+              )}
+
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="font-display text-lg font-semibold text-ink-300">RSS 源管理</h2>
                   <p className="text-sm text-ink-50">配置新闻来源，用于自动抓取和精编模式</p>
                 </div>
-                <button
-                  onClick={() => { setEditingRss(null); setShowRssModal(true) }}
-                  className="flex items-center gap-2 px-4 py-2 bg-accent-coral text-cream-100 rounded-xl font-medium hover:bg-accent-coral/90 transition-colors"
-                >
-                  <Plus className="w-4 h-4" />
-                  添加 RSS 源
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleFetchNews()}
+                    disabled={fetching}
+                    className="flex items-center gap-2 px-4 py-2 bg-cream-200 text-ink-300 rounded-xl font-medium hover:bg-cream-300 transition-colors disabled:opacity-50"
+                  >
+                    {fetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                    抓取全部
+                  </button>
+                  <button
+                    onClick={() => { setEditingRss(null); setRssForm({ name: '', url: '', enabled: true, auto_mode: false }); setShowRssModal(true) }}
+                    className="flex items-center gap-2 px-4 py-2 bg-accent-coral text-cream-100 rounded-xl font-medium hover:bg-accent-coral/90 transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                    添加 RSS 源
+                  </button>
+                </div>
               </div>
 
               {/* RSS 源列表 */}
-              <div className="space-y-3">
-                {rssSources.map(source => (
-                  <div
-                    key={source.id}
-                    className={`bg-cream-100 rounded-2xl p-5 border transition-colors ${
-                      source.enabled ? 'border-cream-300' : 'border-cream-400 opacity-60'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-start gap-4">
-                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                          source.enabled ? 'bg-accent-sage/20' : 'bg-cream-200'
-                        }`}>
-                          <Rss className={`w-5 h-5 ${source.enabled ? 'text-accent-sage' : 'text-ink-50'}`} />
-                        </div>
-                        <div>
-                          <h3 className="font-medium text-ink-300">{source.name}</h3>
-                          <p className="text-sm text-ink-50 truncate max-w-md">{source.url}</p>
-                          <div className="flex items-center gap-3 mt-2">
-                            <span className="text-xs text-ink-50">约 {source.count} 条/天</span>
+              {loading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="w-8 h-8 animate-spin text-accent-coral" />
+                </div>
+              ) : rssSources.length === 0 ? (
+                <div className="text-center py-12 text-ink-50 bg-cream-100 rounded-2xl">
+                  暂无 RSS 源，点击上方按钮添加
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {rssSources.map(source => (
+                    <div
+                      key={source.id}
+                      className={`bg-cream-100 rounded-2xl p-5 border transition-colors ${
+                        source.enabled ? 'border-cream-300' : 'border-cream-400 opacity-60'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-start gap-4">
+                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                            source.enabled ? 'bg-accent-sage/20' : 'bg-cream-200'
+                          }`}>
+                            <Rss className={`w-5 h-5 ${source.enabled ? 'text-accent-sage' : 'text-ink-50'}`} />
+                          </div>
+                          <div>
+                            <h3 className="font-medium text-ink-300">{source.name}</h3>
+                            <p className="text-sm text-ink-50 truncate max-w-md">{source.url}</p>
                           </div>
                         </div>
-                      </div>
 
-                      <div className="flex items-center gap-2">
-                        {/* 启用开关 */}
-                        <button
-                          onClick={() => toggleRssEnabled(source.id)}
-                          className={`w-12 h-6 rounded-full transition-colors relative ${
-                            source.enabled ? 'bg-accent-sage' : 'bg-cream-400'
-                          }`}
-                        >
-                          <motion.div
-                            animate={{ x: source.enabled ? 24 : 2 }}
-                            transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-                            className="w-5 h-5 bg-white rounded-full shadow-sm"
-                          />
-                        </button>
+                        <div className="flex items-center gap-2">
+                          {/* 抓取按钮 */}
+                          <button
+                            onClick={() => handleFetchNews(source.id)}
+                            disabled={fetching || !source.enabled}
+                            className="p-2 hover:bg-cream-200 rounded-xl text-ink-50 hover:text-ink-300 disabled:opacity-50"
+                            title="抓取新闻"
+                          >
+                            <RefreshCw className="w-4 h-4" />
+                          </button>
 
-                        {/* 自动模式 */}
-                        <button
-                          onClick={() => toggleRssAutoMode(source.id)}
-                          disabled={!source.enabled}
-                          className={`px-3 py-1 rounded-lg text-xs transition-colors ${
-                            source.autoMode && source.enabled
-                              ? 'bg-accent-sage/20 text-accent-sage'
-                              : 'bg-cream-200 text-ink-50'
-                          }`}
-                        >
-                          ☑自动
-                        </button>
+                          {/* 启用开关 */}
+                          <button
+                            onClick={() => toggleRssEnabled(source.id)}
+                            className={`w-12 h-6 rounded-full transition-colors relative ${
+                              source.enabled ? 'bg-accent-sage' : 'bg-cream-400'
+                            }`}
+                          >
+                            <motion.div
+                              animate={{ x: source.enabled ? 24 : 2 }}
+                              transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                              className="w-5 h-5 bg-white rounded-full shadow-sm"
+                            />
+                          </button>
 
-                        {/* 编辑 */}
-                        <button
-                          onClick={() => { setEditingRss(source); setShowRssModal(true) }}
-                          className="p-2 hover:bg-cream-200 rounded-xl text-ink-50 hover:text-ink-300"
-                        >
-                          <Edit3 className="w-4 h-4" />
-                        </button>
+                          {/* 自动模式 */}
+                          <button
+                            onClick={() => toggleRssAutoMode(source.id)}
+                            disabled={!source.enabled}
+                            className={`px-3 py-1 rounded-lg text-xs transition-colors ${
+                              source.auto_mode && source.enabled
+                                ? 'bg-accent-sage/20 text-accent-sage'
+                                : 'bg-cream-200 text-ink-50'
+                            }`}
+                          >
+                            ☑自动
+                          </button>
 
-                        {/* 删除 */}
-                        <button
-                          onClick={() => deleteRss(source.id)}
-                          className="p-2 hover:bg-cream-200 rounded-xl text-ink-50 hover:text-accent-coral"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                          {/* 编辑 */}
+                          <button
+                            onClick={() => openEditModal(source)}
+                            className="p-2 hover:bg-cream-200 rounded-xl text-ink-50 hover:text-ink-300"
+                          >
+                            <Edit3 className="w-4 h-4" />
+                          </button>
+
+                          {/* 删除 */}
+                          <button
+                            onClick={() => deleteRss(source.id)}
+                            className="p-2 hover:bg-red-100 rounded-xl text-red-500"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* 说明 */}
-              <div className="bg-cream-200 rounded-xl p-4">
-                <h4 className="text-sm font-medium text-ink-300 mb-2">说明</h4>
-                <ul className="text-sm text-ink-50 space-y-1">
-                  <li>• <strong>启用：</strong>控制该 RSS 源是否参与新闻抓取</li>
-                  <li>• <strong>☑自动：</strong>自动模式仅抓取标记为"自动"的 RSS 源</li>
-                </ul>
-              </div>
+                  ))}
+                </div>
+              )}
             </motion.div>
           )}
 
-          {/* 音色设置 */}
-          {activeTab === 'voice' && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="space-y-6"
-            >
-              {voices.map(voice => (
-                <div key={voice.id} className="bg-cream-100 rounded-2xl p-6 border border-cream-300">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                        voice.id === 'luo' ? 'bg-accent-coral/20' : 'bg-accent-sage/20'
-                      }`}>
-                        <Mic className={`w-5 h-5 ${voice.id === 'luo' ? 'text-accent-coral' : 'text-accent-sage'}`} />
-                      </div>
-                      <div>
-                        <h3 className="font-medium text-ink-300">{voice.name}</h3>
-                        <p className="text-sm text-ink-50">{voice.description}</p>
-                      </div>
-                    </div>
-                    <span className="text-xs px-2 py-1 bg-cream-200 rounded-lg text-ink-50">{voice.provider}</span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-xs text-ink-50 mb-2">Voice ID</label>
-                      <input
-                        type="text"
-                        defaultValue={voice.voiceId}
-                        className="w-full px-3 py-2 bg-cream-200 border border-cream-400 rounded-xl text-sm focus:outline-none focus:border-accent-coral"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-ink-50 mb-2">语速 (0.5-2.0)</label>
-                      <input
-                        type="number"
-                        step="0.1"
-                        min="0.5"
-                        max="2.0"
-                        defaultValue={voice.speed}
-                        className="w-full px-3 py-2 bg-cream-200 border border-cream-400 rounded-xl text-sm focus:outline-none focus:border-accent-coral"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-ink-50 mb-2">音调 (-12~12)</label>
-                      <input
-                        type="number"
-                        step="1"
-                        min="-12"
-                        max="12"
-                        defaultValue={voice.pitch}
-                        className="w-full px-3 py-2 bg-cream-200 border border-cream-400 rounded-xl text-sm focus:outline-none focus:border-accent-coral"
-                      />
-                    </div>
-                  </div>
-                  <div className="mt-4 flex justify-end">
-                    <button className="flex items-center gap-2 px-3 py-1.5 text-sm bg-cream-200 rounded-lg text-ink-300 hover:bg-cream-300 transition-colors">
-                      <Upload className="w-4 h-4" />
-                      上传音频克隆音色
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </motion.div>
-          )}
-
-          {/* API 配置 */}
-          {activeTab === 'api' && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="space-y-6"
-            >
-              {apis.map(api => (
-                <div key={api.id} className="bg-cream-100 rounded-2xl p-6 border border-cream-300">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                        api.status === 'connected' ? 'bg-accent-sage/20' : 'bg-cream-300'
-                      }`}>
-                        {api.status === 'connected' ? (
-                          <CheckCircle2 className="w-5 h-5 text-accent-sage" />
-                        ) : (
-                          <AlertCircle className="w-5 h-5 text-ink-50" />
-                        )}
-                      </div>
-                      <div>
-                        <h3 className="font-medium text-ink-300">{api.name}</h3>
-                        <p className="text-sm text-ink-50">{api.key}</p>
-                      </div>
-                    </div>
-                    <span className={`text-xs px-2 py-1 rounded-full ${
-                      api.status === 'connected'
-                        ? 'bg-accent-sage/20 text-accent-sage'
-                        : 'bg-accent-coral/20 text-accent-coral'
-                    }`}>
-                      {api.status === 'connected' ? '已连接' : '未连接'}
-                    </span>
-                  </div>
-                  <div>
-                    <label className="block text-xs text-ink-50 mb-2">API Key</label>
-                    <input
-                      type="password"
-                      defaultValue={api.value}
-                      placeholder="请输入 API Key"
-                      className="w-full px-3 py-2 bg-cream-200 border border-cream-400 rounded-xl text-sm focus:outline-none focus:border-accent-coral"
-                    />
-                  </div>
-                </div>
-              ))}
-            </motion.div>
-          )}
-
-          {/* 定时任务 */}
-          {activeTab === 'schedule' && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="space-y-6"
-            >
-              <div className="bg-cream-100 rounded-2xl p-6 border border-cream-300">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="font-display text-lg font-semibold text-ink-300">定时生成任务</h2>
-                  <button className="flex items-center gap-2 px-3 py-1.5 text-sm bg-accent-coral text-cream-100 rounded-lg hover:bg-accent-coral/90 transition-colors">
-                    <Plus className="w-4 h-4" />
-                    添加任务
-                  </button>
-                </div>
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between p-4 bg-cream-200 rounded-xl">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 bg-accent-sage/20 rounded-lg flex items-center justify-center">
-                        <Clock className="w-4 h-4 text-accent-sage" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-ink-300">每日科技播客</p>
-                        <p className="text-xs text-ink-50">每天 08:00 自动生成</p>
-                      </div>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input type="checkbox" defaultChecked className="sr-only peer" />
-                      <div className="w-11 h-6 bg-cream-400 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-accent-sage"></div>
-                    </label>
-                  </div>
-                  <div className="flex items-center justify-between p-4 bg-cream-200 rounded-xl">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 bg-accent-gold/20 rounded-lg flex items-center justify-center">
-                        <Clock className="w-4 h-4 text-accent-gold" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-ink-300">周末特别节目</p>
-                        <p className="text-xs text-ink-50">每周六 10:00 自动生成</p>
-                      </div>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input type="checkbox" className="sr-only peer" />
-                      <div className="w-11 h-6 bg-cream-400 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-accent-sage"></div>
-                    </label>
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          )}
-
-          {/* 通知设置 */}
-          {activeTab === 'notifications' && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="space-y-6"
-            >
-              <div className="bg-cream-100 rounded-2xl p-6 border border-cream-300">
-                <h2 className="font-display text-lg font-semibold text-ink-300 mb-4">通知渠道</h2>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between p-4 bg-cream-200 rounded-xl">
-                    <div className="flex items-center gap-3">
-                      <Bell className="w-5 h-5 text-ink-50" />
-                      <span className="text-sm font-medium text-ink-300">邮件通知</span>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input type="checkbox" defaultChecked className="sr-only peer" />
-                      <div className="w-11 h-6 bg-cream-400 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-accent-sage"></div>
-                    </label>
-                  </div>
-                  <div className="flex items-center justify-between p-4 bg-cream-200 rounded-xl">
-                    <div className="flex items-center gap-3">
-                      <Globe className="w-5 h-5 text-ink-50" />
-                      <span className="text-sm font-medium text-ink-300">Telegram 通知</span>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input type="checkbox" className="sr-only peer" />
-                      <div className="w-11 h-6 bg-cream-400 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-accent-sage"></div>
-                    </label>
-                  </div>
-                </div>
-              </div>
-              <div className="bg-cream-100 rounded-2xl p-6 border border-cream-300">
-                <h2 className="font-display text-lg font-semibold text-ink-300 mb-4">通知事件</h2>
-                <div className="space-y-3">
-                  <label className="flex items-center gap-3 p-3 bg-cream-200 rounded-xl cursor-pointer hover:bg-cream-300 transition-colors">
-                    <input type="checkbox" defaultChecked className="w-4 h-4 accent-accent-coral" />
-                    <span className="text-sm text-ink-300">新闻抓取完成</span>
-                  </label>
-                  <label className="flex items-center gap-3 p-3 bg-cream-200 rounded-xl cursor-pointer hover:bg-cream-300 transition-colors">
-                    <input type="checkbox" defaultChecked className="w-4 h-4 accent-accent-coral" />
-                    <span className="text-sm text-ink-300">逐字稿生成完成</span>
-                  </label>
-                  <label className="flex items-center gap-3 p-3 bg-cream-200 rounded-xl cursor-pointer hover:bg-cream-300 transition-colors">
-                    <input type="checkbox" defaultChecked className="w-4 h-4 accent-accent-coral" />
-                    <span className="text-sm text-ink-300">音频生成完成</span>
-                  </label>
-                  <label className="flex items-center gap-3 p-3 bg-cream-200 rounded-xl cursor-pointer hover:bg-cream-300 transition-colors">
-                    <input type="checkbox" className="w-4 h-4 accent-accent-coral" />
-                    <span className="text-sm text-ink-300">生成失败时通知</span>
-                  </label>
-                </div>
-              </div>
-            </motion.div>
+          {/* 其他 Tab 占位 */}
+          {activeTab !== 'rss' && (
+            <div className="text-center py-12 text-ink-50">
+              该功能正在开发中...
+            </div>
           )}
         </div>
       </div>
 
-      {/* RSS 源添加/编辑弹窗 */}
+      {/* RSS 源弹窗 */}
       <AnimatePresence>
         {showRssModal && (
           <motion.div
@@ -548,77 +400,72 @@ export default function Settings() {
                   <X className="w-5 h-5 text-ink-50" />
                 </button>
               </div>
-              <div className="space-y-4">
+
+              <form onSubmit={handleRssSubmit} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-ink-300 mb-2">源名称</label>
+                  <label className="block text-sm font-medium text-ink-300 mb-2">名称</label>
                   <input
                     type="text"
-                    defaultValue={editingRss?.name || ''}
-                    placeholder="例如：科技快讯"
+                    value={rssForm.name}
+                    onChange={(e) => setRssForm({ ...rssForm, name: e.target.value })}
+                    placeholder="例如：36氪"
                     className="w-full px-4 py-3 bg-cream-200 border border-cream-400 rounded-xl text-sm focus:outline-none focus:border-accent-coral"
+                    required
                   />
                 </div>
+
                 <div>
                   <label className="block text-sm font-medium text-ink-300 mb-2">RSS URL</label>
                   <input
                     type="url"
-                    defaultValue={editingRss?.url || ''}
-                    placeholder="https://example.com/feed.xml"
+                    value={rssForm.url}
+                    onChange={(e) => setRssForm({ ...rssForm, url: e.target.value })}
+                    placeholder="https://example.com/rss"
                     className="w-full px-4 py-3 bg-cream-200 border border-cream-400 rounded-xl text-sm focus:outline-none focus:border-accent-coral"
+                    required
                   />
                 </div>
-                <div className="flex items-center gap-2 pt-2">
-                  <input
-                    type="checkbox"
-                    id="rssEnabled"
-                    defaultChecked={editingRss?.enabled ?? true}
-                    className="w-4 h-4 accent-accent-coral"
-                  />
-                  <label htmlFor="rssEnabled" className="text-sm text-ink-300">启用此源</label>
+
+                <div className="flex items-center gap-6">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={rssForm.enabled}
+                      onChange={(e) => setRssForm({ ...rssForm, enabled: e.target.checked })}
+                      className="w-4 h-4 rounded border-cream-400 text-accent-coral focus:ring-accent-coral"
+                    />
+                    <span className="text-sm text-ink-300">启用</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={rssForm.auto_mode}
+                      onChange={(e) => setRssForm({ ...rssForm, auto_mode: e.target.checked })}
+                      className="w-4 h-4 rounded border-cream-400 text-accent-coral focus:ring-accent-coral"
+                    />
+                    <span className="text-sm text-ink-300">用于自动模式</span>
+                  </label>
                 </div>
-                <div className="flex items-center gap-2 pt-2 pb-2">
-                  <input
-                    type="checkbox"
-                    id="rssAutoMode"
-                    defaultChecked={editingRss?.autoMode ?? false}
-                    className="w-4 h-4 accent-accent-sage"
-                  />
-                  <label htmlFor="rssAutoMode" className="text-sm text-ink-300">用于自动模式</label>
-                  <span className="text-xs text-ink-50">(自动模式将抓取此源)</span>
+
+                <div className="flex justify-end gap-3 mt-6">
+                  <button
+                    type="button"
+                    onClick={() => setShowRssModal(false)}
+                    className="px-4 py-2 text-ink-50 hover:bg-cream-200 rounded-xl transition-colors"
+                    disabled={saving}
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    className="px-4 py-2 bg-accent-coral text-cream-100 rounded-xl font-medium hover:bg-accent-coral/90 transition-colors disabled:opacity-50"
+                  >
+                    {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : (editingRss ? '保存' : '添加')}
+                  </button>
                 </div>
-              </div>
-              <div className="flex justify-end gap-3 mt-6">
-                <button
-                  onClick={() => setShowRssModal(false)}
-                  className="px-4 py-2 text-ink-50 hover:bg-cream-200 rounded-xl transition-colors"
-                >
-                  取消
-                </button>
-                <button
-                  onClick={() => {
-                    if (editingRss) {
-                      // 编辑模式
-                      setRssSources(rssSources.map(s =>
-                        s.id === editingRss.id ? { ...s, name: '已更新' } : s
-                      ))
-                    } else {
-                      // 添加模式
-                      setRssSources([...rssSources, {
-                        id: Date.now(),
-                        name: '新 RSS 源',
-                        url: 'https://example.com',
-                        count: 0,
-                        enabled: true,
-                        autoMode: false
-                      }])
-                    }
-                    setShowRssModal(false)
-                  }}
-                  className="px-4 py-2 bg-accent-coral text-cream-100 rounded-xl font-medium hover:bg-accent-coral/90 transition-colors"
-                >
-                  {editingRss ? '保存' : '添加'}
-                </button>
-              </div>
+              </form>
             </motion.div>
           </motion.div>
         )}
