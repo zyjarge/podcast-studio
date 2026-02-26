@@ -289,7 +289,6 @@ export default function EpisodeList() {
                     type="text"
                     value={newEpisodeTitle}
                     onChange={(e) => setNewEpisodeTitle(e.target.value)}
-                    placeholder={`${new Date().toLocaleDateString('zh-CN')} - 科技播客`}
                     className="w-full px-4 py-3 bg-cream-200 border border-cream-400 rounded-xl text-sm focus:outline-none focus:border-accent-coral"
                   />
                 </div>
