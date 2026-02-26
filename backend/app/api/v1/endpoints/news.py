@@ -47,18 +47,20 @@ async def fetch_news(source_id: int | None = None, db: Session = Depends(get_db)
                 
                 for item in items:
                     # 检查是否已存在（通过 URL）
-                    existing = db.query(News).filter(News.url == item['url']).first()
+                    # item 是 RSSItem 对象，需要用属性访问
+                    item_url = item.url if hasattr(item, 'url') else item.get('url', '')
+                    existing = db.query(News).filter(News.url == item_url).first()
                     if existing:
                         continue
                     
                     # 创建新闻记录
                     news = News(
-                        title=item.get('title', ''),
+                        title=item.title if hasattr(item, 'title') else item.get('title', ''),
                         source=source.name,
-                        url=item.get('url', ''),
-                        summary=item.get('summary', ''),
-                        keywords=item.get('keywords', []),
-                        content=item.get('content', ''),
+                        url=item_url,
+                        summary=item.summary if hasattr(item, 'summary') else item.get('summary', ''),
+                        keywords=[],
+                        content=item.summary if hasattr(item, 'summary') else item.get('summary', ''),
                         rss_source_id=source.id
                     )
                     db.add(news)
