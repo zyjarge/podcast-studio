@@ -254,6 +254,15 @@ export default function Settings() {
           <h1 className="font-display text-2xl font-semibold text-ink-300 mb-1">设置</h1>
           <p className="text-sm text-ink-50">配置主播信息，音色、API 和定时任务</p>
         </div>
+        <motion.button
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+          onClick={handleSave}
+          className="flex items-center gap-2 px-4 py-2 bg-accent-coral text-cream-100 rounded-xl font-medium hover:bg-accent-coral/90 transition-colors"
+        >
+          {saved ? <CheckCircle2 className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+          {saved ? '已保存' : '保存设置'}
+        </motion.button>
       </div>
 
       <div className="flex gap-8">
