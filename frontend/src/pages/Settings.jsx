@@ -472,13 +472,23 @@ export default function Settings() {
                         <p className="text-sm text-ink-50">{api.key}</p>
                       </div>
                     </div>
-                    <span className={`text-xs px-2 py-1 rounded-full ${
-                      apiStatus[api.id]?.connected
-                        ? 'bg-accent-sage/20 text-accent-sage'
-                        : 'bg-accent-coral/20 text-accent-coral'
-                    }`}>
-                      {apiStatus[api.id]?.connected ? '已连接' : '未连接'}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs px-2 py-1 rounded-full ${
+                        apiStatus[api.id]?.connected
+                          ? 'bg-accent-sage/20 text-accent-sage'
+                          : 'bg-accent-coral/20 text-accent-coral'
+                      }`}>
+                        {apiStatus[api.id]?.connected ? '已连接' : '未连接'}
+                      </span>
+                      <button
+                        onClick={() => fetchApiStatus()}
+                        disabled={testingApi}
+                        className="p-1.5 hover:bg-cream-200 rounded-lg text-ink-50 hover:text-ink-300"
+                        title="刷新状态"
+                      >
+                        <RefreshCw className={`w-4 h-4 ${testingApi ? 'animate-spin' : ''}`} />
+                      </button>
+                    </div>
                   </div>
                   <div>
                     <label className="block text-xs text-ink-50 mb-2">API Key</label>
