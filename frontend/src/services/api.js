@@ -66,7 +66,9 @@ export const newsApi = {
     const params = sourceId ? `?source_id=${sourceId}` : ''
     return request(`/news/${params}`)
   },
-  fetch: () => request('/news/fetch', { method: 'POST' }),
+  fetch: (sourceId) => sourceId 
+    ? request(`/news/fetch?source_id=${sourceId}`, { method: 'POST' })
+    : request('/news/fetch', { method: 'POST' }),
 }
 
 // Episodes API

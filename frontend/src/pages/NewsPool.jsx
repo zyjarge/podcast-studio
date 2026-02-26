@@ -80,8 +80,30 @@ export default function NewsPool() {
   const handleFetchNews = async () => {
     try {
       setFetching(true)
-      await newsApi.fetch()
+      
+      // 获取要抓取的源（选中的或全部启用的）
+      const sourcesToFetch = selectedSource.length > 0 
+        ? sources.filter(s => selectedSource.includes(s.name))
+        : sources
+      
+      if (sourcesToFetch.length === 0) {
+        alert('请先选择要抓取的 RSS 源')
+        setFetching(false)
+        return
+      }
+      
+      // 逐个抓取
+      for (const source of sourcesToFetch) {
+        try {
+          await newsApi.fetch(source.id)
+        } catch (err) {
+          console.error(`Failed to fetch from ${source.name}:`, err)
+        }
+      }
+      
+      // 刷新数据
       await fetchData()
+      
     } catch (err) {
       console.error('Failed to fetch news:', err)
       setError('抓取新闻失败')
