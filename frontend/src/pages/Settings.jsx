@@ -21,7 +21,7 @@ import {
   Loader2,
   RefreshCw
 } from 'lucide-react'
-import { sourcesApi, newsApi, rssParserApi } from '../services/api'
+import { sourcesApi, newsApi, rssParserApi, settingsApi } from '../services/api'
 
 const tabs = [
   { id: 'profile', label: '主播配置', icon: User },
@@ -75,10 +75,16 @@ export default function Settings() {
   // RSS 表单状态
   const [rssForm, setRssForm] = useState({ name: '', url: '', enabled: true, auto_mode: false })
   const [parsing, setParsing] = useState(false)
+  
+  // API 状态
+  const [apiStatus, setApiStatus] = useState({})
+  const [testingApi, setTestingApi] = useState(false)
 
   useEffect(() => {
     if (activeTab === 'rss') {
       fetchRssSources()
+    } else if (activeTab === 'api') {
+      fetchApiStatus()
     }
   }, [activeTab])
 
@@ -93,6 +99,15 @@ export default function Settings() {
       setError('加载 RSS 源失败')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const fetchApiStatus = async () => {
+    try {
+      const data = await settingsApi.getApiStatus()
+      setApiStatus(data)
+    } catch (err) {
+      console.error('Failed to fetch API status:', err)
     }
   }
 
@@ -379,6 +394,93 @@ export default function Settings() {
                   ))}
                 </div>
               )}
+            </motion.div>
+          )}
+
+          {/* API 配置 */}
+          {activeTab === 'api' && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-6"
+            >
+              <div>
+                <h2 className="font-display text-lg font-semibold text-ink-300">API 配置</h2>
+                <p className="text-sm text-ink-50">配置 AI 服务 API Key（需要在环境变量中设置）</p>
+              </div>
+
+              <div className="space-y-4">
+                {/* DeepSeek */}
+                <div className="bg-cream-100 rounded-2xl p-5 border border-cream-300">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center">
+                        <Key className="w-5 h-5 text-blue-500" />
+                      </div>
+                      <div>
+                        <h3 className="font-medium text-ink-300">DeepSeek API</h3>
+                        <p className="text-sm text-ink-50">用于生成播客脚本</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                        apiStatus.deepseek?.connected 
+                          ? 'bg-green-100 text-green-600' 
+                          : 'bg-red-100 text-red-600'
+                      }`}>
+                        {apiStatus.deepseek?.connected ? '已连接' : '未连接'}
+                      </span>
+                      <button
+                        onClick={fetchApiStatus}
+                        disabled={testingApi}
+                        className="p-2 hover:bg-cream-200 rounded-xl transition-colors"
+                      >
+                        <RefreshCw className={`w-4 h-4 ${testingApi ? 'animate-spin' : ''}`} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* MiniMax */}
+                <div className="bg-cream-100 rounded-2xl p-5 border border-cream-300">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-xl bg-purple-100 flex items-center justify-center">
+                        <Volume2 className="w-5 h-5 text-purple-500" />
+                      </div>
+                      <div>
+                        <h3 className="font-medium text-ink-300">MiniMax API</h3>
+                        <p className="text-sm text-ink-50">用于语音合成（TTS）</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                        apiStatus.minimax?.connected 
+                          ? 'bg-green-100 text-green-600' 
+                          : 'bg-red-100 text-red-600'
+                      }`}>
+                        {apiStatus.minimax?.connected ? '已连接' : '未连接'}
+                      </span>
+                      <button
+                        onClick={fetchApiStatus}
+                        disabled={testingApi}
+                        className="p-2 hover:bg-cream-200 rounded-xl transition-colors"
+                      >
+                        <RefreshCw className={`w-4 h-4 ${testingApi ? 'animate-spin' : ''}`} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 说明 */}
+                <div className="bg-cream-200 rounded-xl p-4">
+                  <p className="text-sm text-ink-50">
+                    <strong>注意：</strong> API Key 需要在服务器环境变量中配置，修改后需要重启服务。
+                    <br />
+                    环境变量：<code className="bg-cream-100 px-2 py-1 rounded">DEEPSEEK_API_KEY</code> 和 <code className="bg-cream-100 px-2 py-1 rounded">MINIMAX_API_KEY</code>
+                  </p>
+                </div>
+              </div>
             </motion.div>
           )}
 

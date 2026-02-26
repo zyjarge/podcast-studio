@@ -51,6 +51,11 @@ export const rssParserApi = {
   parseUrl: (url) => request(`/rss/parse-rss?url=${encodeURIComponent(url)}`),
 }
 
+// Settings API
+export const settingsApi = {
+  getApiStatus: () => request('/settings/status'),
+}
+
 // News API
 export const newsApi = {
   list: (sourceId) => {
