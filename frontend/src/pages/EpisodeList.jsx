@@ -54,8 +54,8 @@ export default function EpisodeList() {
   }
 
   const handleCreateEpisode = async () => {
-    if (!newEpisodeTitle.trim()) return
-
+    const title = newEpisodeTitle.trim() || `${new Date().toLocaleDateString('zh-CN')} - 科技播客`
+    
     try {
       setCreating(true)
       const title = newEpisodeTitle || `${new Date().toLocaleDateString('zh-CN')} - 科技播客`
@@ -74,7 +74,7 @@ export default function EpisodeList() {
 
   const handleDeleteEpisode = async () => {
     if (!deleteModal.episode) return
-    
+
     try {
       setDeleting(true)
       await episodesApi.delete(deleteModal.episode.id)
@@ -125,7 +125,10 @@ export default function EpisodeList() {
         <motion.button
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
-          onClick={() => setShowCreateModal(true)}
+          onClick={() => {
+            setNewEpisodeTitle(`${new Date().toLocaleDateString('zh-CN')} - 科技播客`)
+            setShowCreateModal(true)
+          }}
           className="flex items-center gap-2 px-5 py-3 bg-accent-coral text-cream-100 rounded-xl font-medium hover:bg-accent-coral/90 transition-colors shadow-lg"
         >
           <Plus className="w-5 h-5" />
@@ -234,7 +237,7 @@ export default function EpisodeList() {
                           <Edit3 className="w-5 h-5" />
                         </button>
                       )}
-                      <button 
+                      <button
                         className="p-3 bg-cream-100 rounded-full text-red-500 hover:bg-red-100 transition-colors"
                         onClick={(e) => {
                           e.stopPropagation()
@@ -336,7 +339,7 @@ export default function EpisodeList() {
                 </div>
                 <h2 className="font-display text-xl font-semibold text-ink-300">确认删除</h2>
               </div>
-              
+
               <p className="text-ink-50 mb-6">
                 确定要删除节目 <strong className="text-ink-300">"{deleteModal.episode?.title}"</strong> 吗？此操作不可恢复。
               </p>
