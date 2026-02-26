@@ -54,6 +54,7 @@ export const rssParserApi = {
 // Settings API
 export const settingsApi = {
   getApiStatus: () => request('/settings/status'),
+  getEnvKeys: () => request('/settings/env-keys'),
   updateEnv: (key, value) => request(`/settings/update-env?key=${key}&value=${value}`, {
     method: 'POST'
   }),

@@ -87,6 +87,7 @@ export default function Settings() {
       fetchRssSources()
     } else if (activeTab === 'api') {
       fetchApiStatus()
+      loadApiKeys()
     }
   }, [activeTab])
 
@@ -110,6 +111,19 @@ export default function Settings() {
       setApiStatus(data)
     } catch (err) {
       console.error('Failed to fetch API status:', err)
+    }
+  }
+
+  const loadApiKeys = async () => {
+    try {
+      const keys = await settingsApi.getEnvKeys()
+      const newValues = apiKeyValues.map(item => ({
+        ...item,
+        value: keys[item.key] || ''
+      }))
+      setApiKeyValues(newValues)
+    } catch (err) {
+      console.error('Failed to load API keys:', err)
     }
   }
 

@@ -11,6 +11,28 @@ router = APIRouter()
 ENV_FILE = Path(__file__).parent.parent.parent / ".env"
 
 
+@router.get("/env-keys")
+async def get_env_keys():
+    """获取当前环境变量（已配置的 key）"""
+    result = {}
+    valid_keys = ["DEEPSEEK_API_KEY", "MINIMAX_API_KEY", "ELEVENLABS_API_KEY"]
+    
+    if ENV_FILE.exists():
+        with open(ENV_FILE, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line and "=" in line:
+                    key, value = line.split("=", 1)
+                    if key in valid_keys and value:
+                        # 返回掩码后的值
+                        if len(value) > 8:
+                            result[key] = value[:4] + "***" + value[-4:]
+                        else:
+                            result[key] = "***"
+    
+    return result
+
+
 @router.post("/update-env")
 async def update_env(key: str, value: str):
     """更新环境变量"""
