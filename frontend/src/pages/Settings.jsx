@@ -19,7 +19,9 @@ import {
   X,
   Edit3,
   Loader2,
-  RefreshCw
+  RefreshCw,
+  Eye,
+  EyeOff,
 } from 'lucide-react'
 import { sourcesApi, newsApi, rssParserApi, settingsApi } from '../services/api'
 
@@ -135,6 +137,7 @@ export default function Settings() {
     { key: 'MINIMAX_API_KEY', value: '' },
     { key: 'ELEVENLABS_API_KEY', value: '' },
   ])
+  const [showPassword, setShowPassword] = useState([false, false, false])
 
   // RSS 源操作
   const toggleRssEnabled = async (id) => {
@@ -465,17 +468,30 @@ export default function Settings() {
                   </div>
                   <div>
                     <label className="block text-xs text-ink-50 mb-2">API Key</label>
-                    <input
-                      type="password"
-                      value={apiKeyValues[index].value}
-                      onChange={(e) => {
-                        const newValues = [...apiKeyValues]
-                        newValues[index].value = e.target.value
-                        setApiKeyValues(newValues)
-                      }}
-                      placeholder="请输入 API Key"
-                      className="w-full px-3 py-2 bg-cream-200 border border-cream-400 rounded-xl text-sm focus:outline-none focus:border-accent-coral"
-                    />
+                    <div className="relative">
+                      <input
+                        type={showPassword[index] ? 'text' : 'password'}
+                        value={apiKeyValues[index].value}
+                        onChange={(e) => {
+                          const newValues = [...apiKeyValues]
+                          newValues[index].value = e.target.value
+                          setApiKeyValues(newValues)
+                        }}
+                        placeholder="请输入 API Key"
+                        className="w-full px-3 py-2 pr-10 bg-cream-200 border border-cream-400 rounded-xl text-sm focus:outline-none focus:border-accent-coral"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const newShow = [...showPassword]
+                          newShow[index] = !newShow[index]
+                          setShowPassword(newShow)
+                        }}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-50 hover:text-ink-300"
+                      >
+                        {showPassword[index] ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
                   </div>
                   <p className="text-xs text-ink-50 mt-2">{api.desc}</p>
                 </div>
