@@ -404,82 +404,55 @@ export default function Settings() {
               animate={{ opacity: 1, y: 0 }}
               className="space-y-6"
             >
-              <div>
-                <h2 className="font-display text-lg font-semibold text-ink-300">API 配置</h2>
-                <p className="text-sm text-ink-50">配置 AI 服务 API Key（需要在环境变量中设置）</p>
-              </div>
-
-              <div className="space-y-4">
-                {/* DeepSeek */}
-                <div className="bg-cream-100 rounded-2xl p-5 border border-cream-300">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center">
-                        <Key className="w-5 h-5 text-blue-500" />
+              {[
+                { id: 'deepseek', name: 'DeepSeek API', key: 'DEEPSEEK_API_KEY', desc: '用于生成播客脚本' },
+                { id: 'minimax', name: 'MiniMax API', key: 'MINIMAX_API_KEY', desc: '用于语音合成（TTS）' },
+                { id: 'elevenlabs', name: 'ElevenLabs API', key: 'ELEVENLABS_API_KEY', desc: '备用语音合成' },
+              ].map(api => (
+                <div key={api.id} className="bg-cream-100 rounded-2xl p-6 border border-cream-300">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                        apiStatus[api.id]?.connected ? 'bg-accent-sage/20' : 'bg-cream-300'
+                      }`}>
+                        {apiStatus[api.id]?.connected ? (
+                          <CheckCircle2 className="w-5 h-5 text-accent-sage" />
+                        ) : (
+                          <AlertCircle className="w-5 h-5 text-ink-50" />
+                        )}
                       </div>
                       <div>
-                        <h3 className="font-medium text-ink-300">DeepSeek API</h3>
-                        <p className="text-sm text-ink-50">用于生成播客脚本</p>
+                        <h3 className="font-medium text-ink-300">{api.name}</h3>
+                        <p className="text-sm text-ink-50">{api.key}</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                        apiStatus.deepseek?.connected 
-                          ? 'bg-green-100 text-green-600' 
-                          : 'bg-red-100 text-red-600'
-                      }`}>
-                        {apiStatus.deepseek?.connected ? '已连接' : '未连接'}
-                      </span>
-                      <button
-                        onClick={fetchApiStatus}
-                        disabled={testingApi}
-                        className="p-2 hover:bg-cream-200 rounded-xl transition-colors"
-                      >
-                        <RefreshCw className={`w-4 h-4 ${testingApi ? 'animate-spin' : ''}`} />
-                      </button>
-                    </div>
+                    <span className={`text-xs px-2 py-1 rounded-full ${
+                      apiStatus[api.id]?.connected
+                        ? 'bg-accent-sage/20 text-accent-sage'
+                        : 'bg-accent-coral/20 text-accent-coral'
+                    }`}>
+                      {apiStatus[api.id]?.connected ? '已连接' : '未连接'}
+                    </span>
                   </div>
-                </div>
-
-                {/* MiniMax */}
-                <div className="bg-cream-100 rounded-2xl p-5 border border-cream-300">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-xl bg-purple-100 flex items-center justify-center">
-                        <Volume2 className="w-5 h-5 text-purple-500" />
-                      </div>
-                      <div>
-                        <h3 className="font-medium text-ink-300">MiniMax API</h3>
-                        <p className="text-sm text-ink-50">用于语音合成（TTS）</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                        apiStatus.minimax?.connected 
-                          ? 'bg-green-100 text-green-600' 
-                          : 'bg-red-100 text-red-600'
-                      }`}>
-                        {apiStatus.minimax?.connected ? '已连接' : '未连接'}
-                      </span>
-                      <button
-                        onClick={fetchApiStatus}
-                        disabled={testingApi}
-                        className="p-2 hover:bg-cream-200 rounded-xl transition-colors"
-                      >
-                        <RefreshCw className={`w-4 h-4 ${testingApi ? 'animate-spin' : ''}`} />
-                      </button>
-                    </div>
+                  <div>
+                    <label className="block text-xs text-ink-50 mb-2">API Key</label>
+                    <input
+                      type="password"
+                      placeholder="请输入 API Key"
+                      className="w-full px-3 py-2 bg-cream-200 border border-cream-400 rounded-xl text-sm focus:outline-none focus:border-accent-coral"
+                    />
                   </div>
+                  <p className="text-xs text-ink-50 mt-2">{api.desc}</p>
                 </div>
+              ))}
 
-                {/* 说明 */}
-                <div className="bg-cream-200 rounded-xl p-4">
-                  <p className="text-sm text-ink-50">
-                    <strong>注意：</strong> API Key 需要在服务器环境变量中配置，修改后需要重启服务。
-                    <br />
-                    环境变量：<code className="bg-cream-100 px-2 py-1 rounded">DEEPSEEK_API_KEY</code> 和 <code className="bg-cream-100 px-2 py-1 rounded">MINIMAX_API_KEY</code>
-                  </p>
-                </div>
+              {/* 说明 */}
+              <div className="bg-cream-200 rounded-xl p-4">
+                <p className="text-sm text-ink-50">
+                  <strong>注意：</strong> 修改 API Key 后需要重启后端服务才能生效。
+                  <br />
+                  当前状态从服务器环境变量读取。
+                </p>
               </div>
             </motion.div>
           )}
