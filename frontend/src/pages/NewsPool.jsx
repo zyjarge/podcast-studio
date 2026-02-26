@@ -27,6 +27,7 @@ export default function NewsPool() {
   const [fetching, setFetching] = useState(false)
   const [selectedNews, setSelectedNews] = useState([])
   const [searchQuery, setSearchQuery] = useState('')
+  const [selectedSource, setSelectedSource] = useState('all') // 'all' or source name
   const [showEpisodeModal, setShowEpisodeModal] = useState(false)
   const [episodes, setEpisodes] = useState([])
   const [error, setError] = useState(null)
@@ -97,22 +98,38 @@ export default function NewsPool() {
     }
   }
 
-  const filteredNewsBySource = Object.keys(newsBySource).reduce((acc, source) => {
-    const sourceNews = newsBySource[source]
-    if (!searchQuery) {
-      acc[source] = sourceNews
-      return acc
+  const filteredNewsBySource = (() => {
+    // 如果选择了特定来源，只显示该来源
+    if (selectedSource !== 'all') {
+      const sourceNews = newsBySource[selectedSource] || []
+      if (!searchQuery) {
+        return { [selectedSource]: sourceNews }
+      }
+      const filtered = sourceNews.filter(news => 
+        news.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (news.summary && news.summary.toLowerCase().includes(searchQuery.toLowerCase()))
+      )
+      return filtered.length > 0 ? { [selectedSource]: filtered } : {}
     }
     
-    const filtered = sourceNews.filter(news => 
-      news.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (news.summary && news.summary.toLowerCase().includes(searchQuery.toLowerCase()))
-    )
-    if (filtered.length > 0) {
-      acc[source] = filtered
-    }
-    return acc
-  }, {})
+    // 否则显示所有来源
+    return Object.keys(newsBySource).reduce((acc, source) => {
+      const sourceNews = newsBySource[source]
+      if (!searchQuery) {
+        acc[source] = sourceNews
+        return acc
+      }
+      
+      const filtered = sourceNews.filter(news => 
+        news.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (news.summary && news.summary.toLowerCase().includes(searchQuery.toLowerCase()))
+      )
+      if (filtered.length > 0) {
+        acc[source] = filtered
+      }
+      return acc
+    }, {})
+  })()
 
   const handleAddToEpisode = async (episodeId) => {
     try {
@@ -176,20 +193,40 @@ export default function NewsPool() {
         </div>
       </div>
 
-      {/* RSS 源标签 */}
+      {/* RSS 源标签 - 可点击筛选 */}
       <div className="flex gap-2 mb-6 flex-wrap">
-        {sources.map(source => (
-          <div
-            key={source.id}
-            className="flex items-center gap-2 px-3 py-1.5 bg-cream-200 rounded-lg text-sm"
-          >
-            <Rss className="w-4 h-4 text-accent-coral" />
-            <span className="text-ink-300">{source.name}</span>
-            <span className="text-ink-50 text-xs">
-              ({newsBySource[source.name]?.length || 0})
-            </span>
-          </div>
-        ))}
+        <button
+          onClick={() => setSelectedSource('all')}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors ${
+            selectedSource === 'all'
+              ? 'bg-accent-coral text-cream-100'
+              : 'bg-cream-200 text-ink-300 hover:bg-cream-300'
+          }`}
+        >
+          <Rss className="w-4 h-4" />
+          <span>全部</span>
+          <span className="text-xs opacity-70">
+            ({Object.values(newsBySource).reduce((sum, arr) => sum + arr.length, 0)})
+          </span>
+        </button>
+        {sources.map(source => {
+          const count = newsBySource[source.name]?.length || 0
+          return (
+            <button
+              key={source.id}
+              onClick={() => setSelectedSource(source.name)}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                selectedSource === source.name
+                  ? 'bg-accent-coral text-cream-100'
+                  : 'bg-cream-200 text-ink-300 hover:bg-cream-300'
+              }`}
+            >
+              <Rss className="w-4 h-4" />
+              <span>{source.name}</span>
+              <span className="text-xs opacity-70">({count})</span>
+            </button>
+          )
+        })}
       </div>
 
       {/* 错误提示 */}
