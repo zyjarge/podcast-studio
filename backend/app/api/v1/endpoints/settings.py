@@ -35,13 +35,25 @@ async def get_api_status():
     else:
         status["deepseek"] = {"connected": False, "status": "not_configured"}
     
-    # Test MiniMax - just check key format (API endpoint varies)
+    # Test MiniMax - call API to verify connection
     if settings.MINIMAX_API_KEY:
-        # MiniMax keys typically start with "sk-" or similar
-        if settings.MINIMAX_API_KEY.startswith("sk-") or settings.MINIMAX_API_KEY.startswith("sk_"):
-            status["minimax"] = {"connected": True, "status": "ok"}
-        else:
-            status["minimax"] = {"connected": False, "status": "invalid_key_format"}
+        try:
+            import requests
+            headers = {"Authorization": f"Bearer {settings.MINIMAX_API_KEY}"}
+            # 使用文件列表接口测试，需要 purpose 参数
+            resp = requests.get(
+                "https://api.minimaxi.com/v1/files/list",
+                headers=headers,
+                params={"purpose": "t2a_async_input"},
+                timeout=10
+            )
+            # 只要返回 200 就是连接正常
+            if resp.status_code == 200:
+                status["minimax"] = {"connected": True, "status": "ok"}
+            else:
+                status["minimax"] = {"connected": False, "status": f"error_{resp.status_code}"}
+        except Exception as e:
+            status["minimax"] = {"connected": False, "status": str(e)}
     else:
         status["minimax"] = {"connected": False, "status": "not_configured"}
     
