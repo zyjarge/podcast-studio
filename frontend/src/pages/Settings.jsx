@@ -450,10 +450,16 @@ export default function Settings() {
               animate={{ opacity: 1, y: 0 }}
               className="space-y-6"
             >
+              {/* 提示 */}
+              <div className="bg-cream-200 rounded-xl p-4">
+                <p className="text-sm text-ink-50">
+                  <strong>提示：</strong> 填写 API Key 后点击右上角"保存设置"，会自动保存到后端 .env 文件。保存后需<strong>重启后端服务</strong>才能生效。
+                </p>
+              </div>
+
               {[
                 { id: 'deepseek', name: 'DeepSeek API', key: 'DEEPSEEK_API_KEY', desc: '用于生成播客脚本' },
                 { id: 'minimax', name: 'MiniMax API', key: 'MINIMAX_API_KEY', desc: '用于语音合成（TTS）' },
-                { id: 'elevenlabs', name: 'ElevenLabs API', key: 'ELEVENLABS_API_KEY', desc: '备用语音合成' },
               ].map((api, index) => (
                 <div key={api.id} className="bg-cream-100 rounded-2xl p-6 border border-cream-300">
                   <div className="flex items-center justify-between mb-4">
@@ -520,18 +526,11 @@ export default function Settings() {
                   <p className="text-xs text-ink-50 mt-2">{api.desc}</p>
                 </div>
               ))}
-
-              {/* 说明 */}
-              <div className="bg-cream-200 rounded-xl p-4">
-                <p className="text-sm text-ink-50">
-                  <strong>提示：</strong> 填写 API Key 后点击角"保存设置右上"，会自动保存到后端 .env 文件。保存后需<strong>重启后端服务</strong>才能生效。
-                </p>
-              </div>
             </motion.div>
           )}
 
           {/* 其他 Tab 占位 */}
-          {activeTab !== 'rss' && (
+          {activeTab !== 'rss' && activeTab !== 'api' && (
             <div className="text-center py-12 text-ink-50">
               该功能正在开发中...
             </div>
