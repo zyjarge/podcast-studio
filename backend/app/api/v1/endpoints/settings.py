@@ -18,7 +18,7 @@ async def get_api_status():
     """获取 API 配置状态"""
     status = {}
     
-    # Test DeepSeek
+    # Test DeepSeek - call API to verify connection
     if settings.DEEPSEEK_API_KEY:
         try:
             from openai import OpenAI
@@ -26,10 +26,16 @@ async def get_api_status():
                 api_key=settings.DEEPSEEK_API_KEY,
                 base_url="https://api.deepseek.com"
             )
-            if settings.DEEPSEEK_API_KEY.startswith("sk-"):
+            # 发送简单提示词测试连接
+            response = client.chat.completions.create(
+                model="deepseek-chat",
+                messages=[{"role": "user", "content": "Hi"}],
+                max_tokens=10
+            )
+            if response.choices and len(response.choices) > 0:
                 status["deepseek"] = {"connected": True, "status": "ok"}
             else:
-                status["deepseek"] = {"connected": False, "status": "invalid_key_format"}
+                status["deepseek"] = {"connected": False, "status": "empty_response"}
         except Exception as e:
             status["deepseek"] = {"connected": False, "status": str(e)}
     else:
