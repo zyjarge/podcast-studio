@@ -74,6 +74,7 @@ export default function Settings() {
 
   // RSS 表单状态
   const [rssForm, setRssForm] = useState({ name: '', url: '', enabled: true, auto_mode: false })
+  const [parsing, setParsing] = useState(false)
 
   useEffect(() => {
     if (activeTab === 'rss') {
@@ -191,6 +192,34 @@ export default function Settings() {
       auto_mode: source.auto_mode
     })
     setShowRssModal(true)
+  }
+
+  // 从 RSS URL 解析标题
+  const parseRssTitle = async () => {
+    if (!rssForm.url) return
+    
+    setParsing(true)
+    try {
+      const response = await fetch(rssForm.url)
+      const text = await response.text()
+      
+      // 解析 <title> 标签
+      const titleMatch = text.match(/<title><!\[CDATA\[([^\]]+)\]\]><\/title>|<title>([^<]+)<\/title>/i)
+      
+      if (titleMatch) {
+        const title = titleMatch[1] || titleMatch[2]
+        // 清理标题（去掉 RSS 源名称通常包含的后缀）
+        const cleanTitle = title.replace(/ - RSS$/, '').replace(/ \| .+$/, '').trim()
+        setRssForm({ ...rssForm, name: cleanTitle })
+      } else {
+        alert('无法解析标题，请手动输入')
+      }
+    } catch (err) {
+      console.error('Parse error:', err)
+      alert('解析失败，请检查 URL 是否正确')
+    } finally {
+      setParsing(false)
+    }
   }
 
   return (
@@ -403,24 +432,39 @@ export default function Settings() {
 
               <form onSubmit={handleRssSubmit} className="space-y-4">
                 <div>
+                  <label className="block text-sm font-medium text-ink-300 mb-2">RSS URL</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="url"
+                      value={rssForm.url}
+                      onChange={(e) => setRssForm({ ...rssForm, url: e.target.value })}
+                      placeholder="https://example.com/rss 或 https://tg.i-c-a.su/rss/频道名"
+                      className="flex-1 px-4 py-3 bg-cream-200 border border-cream-400 rounded-xl text-sm focus:outline-none focus:border-accent-coral"
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={parseRssTitle}
+                      disabled={parsing || !rssForm.url}
+                      className="px-4 py-2 bg-cream-200 border border-cream-400 rounded-xl hover:bg-cream-300 transition-colors disabled:opacity-50"
+                      title="从 URL 解析标题"
+                    >
+                      {parsing ? (
+                        <Loader2 className="w-5 h-5 animate-spin text-accent-coral" />
+                      ) : (
+                        <RefreshCw className="w-5 h-5 text-ink-300" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <div>
                   <label className="block text-sm font-medium text-ink-300 mb-2">名称</label>
                   <input
                     type="text"
                     value={rssForm.name}
                     onChange={(e) => setRssForm({ ...rssForm, name: e.target.value })}
-                    placeholder="例如：36氪"
-                    className="w-full px-4 py-3 bg-cream-200 border border-cream-400 rounded-xl text-sm focus:outline-none focus:border-accent-coral"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-ink-300 mb-2">RSS URL</label>
-                  <input
-                    type="url"
-                    value={rssForm.url}
-                    onChange={(e) => setRssForm({ ...rssForm, url: e.target.value })}
-                    placeholder="https://example.com/rss"
+                    placeholder="自动解析或手动输入"
                     className="w-full px-4 py-3 bg-cream-200 border border-cream-400 rounded-xl text-sm focus:outline-none focus:border-accent-coral"
                     required
                   />
