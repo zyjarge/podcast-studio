@@ -16,13 +16,41 @@ import {
   Volume2,
   Play,
   FolderPlus,
-  AlertCircle
+  AlertCircle,
+  Star,
+  ArrowUpDown,
+  Filter
 } from 'lucide-react'
 import { sourcesApi, newsApi, episodesApi } from '../services/api'
+
+// 星级评分组件
+function StarRating({ score, size = 'sm' }) {
+  const stars = Math.round(score / 20) // 100分 = 5星
+  
+  const starSizes = {
+    sm: 'w-3 h-3',
+    md: 'w-4 h-4',
+    lg: 'w-5 h-5'
+  }
+  
+  const starClass = starSizes[size] || starSizes.sm
+  
+  return (
+    <div className="flex items-center gap-0.5">
+      {[1, 2, 3, 4, 5].map(i => (
+        <Star 
+          key={i} 
+          className={`${starClass} ${i <= stars ? 'text-accent-gold fill-accent-gold' : 'text-cream-300'}`} 
+        />
+      ))}
+    </div>
+  )
+}
 
 export default function NewsPool() {
   const [sources, setSources] = useState([])
   const [newsBySource, setNewsBySource] = useState({})
+  const [allNews, setAllNews] = useState([])  // 扁平化的所有新闻
   const [loading, setLoading] = useState(true)
   const [fetching, setFetching] = useState(false)
   const [selectedNews, setSelectedNews] = useState([])
@@ -31,6 +59,10 @@ export default function NewsPool() {
   const [showEpisodeModal, setShowEpisodeModal] = useState(false)
   const [episodes, setEpisodes] = useState([])
   const [error, setError] = useState(null)
+  
+  // 排序和筛选状态
+  const [sortBy, setSortBy] = useState('score') // score, created_at
+  const [minScore, setMinScore] = useState(0) // 最低评分筛选
 
   useEffect(() => {
     fetchData()
@@ -45,8 +77,9 @@ export default function NewsPool() {
       const sourcesData = await sourcesApi.list()
       setSources(sourcesData.filter(s => s.enabled))
       
-      // 获取新闻
-      const newsData = await newsApi.list()
+      // 获取新闻 (按评分排序)
+      const newsData = await newsApi.list({ sortBy: 'score', order: 'desc', limit: 200 })
+      setAllNews(newsData)
       
       // 按来源分组
       const grouped = {}
@@ -124,22 +157,41 @@ export default function NewsPool() {
     // 获取要显示的来源列表
     const sourcesToShow = selectedSource.length > 0 ? selectedSource : Object.keys(newsBySource)
     
-    return sourcesToShow.reduce((acc, source) => {
-      const sourceNews = newsBySource[source] || []
-      if (!searchQuery) {
-        acc[source] = sourceNews
-        return acc
+    // 应用评分筛选和搜索
+    let filteredAll = allNews.filter(news => {
+      // 评分筛选
+      if ((news.score || 0) < minScore) return false
+      // 来源筛选
+      if (selectedSource.length > 0 && !selectedSource.includes(news.source)) return false
+      // 搜索筛选
+      if (searchQuery) {
+        const query = searchQuery.toLowerCase()
+        return (
+          news.title.toLowerCase().includes(query) ||
+          (news.summary && news.summary.toLowerCase().includes(query))
+        )
       }
-      
-      const filtered = sourceNews.filter(news => 
-        news.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (news.summary && news.summary.toLowerCase().includes(searchQuery.toLowerCase()))
-      )
-      if (filtered.length > 0) {
-        acc[source] = filtered
+      return true
+    })
+    
+    // 排序
+    if (sortBy === 'score') {
+      filteredAll.sort((a, b) => (b.score || 0) - (a.score || 0))
+    } else if (sortBy === 'created_at') {
+      filteredAll.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    }
+    
+    // 按来源分组
+    const grouped = {}
+    filteredAll.forEach(news => {
+      const sourceName = news.source || '未知来源'
+      if (!grouped[sourceName]) {
+        grouped[sourceName] = []
       }
-      return acc
-    }, {})
+      grouped[sourceName].push(news)
+    })
+    
+    return grouped
   })()
 
   const handleAddToEpisode = async (episodeId) => {
@@ -190,9 +242,9 @@ export default function NewsPool() {
         </div>
       </div>
 
-      {/* 搜索栏 */}
-      <div className="mb-6">
-        <div className="relative">
+      {/* 搜索栏 + 排序/筛选 */}
+      <div className="mb-6 flex gap-4">
+        <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-ink-50" />
           <input
             type="text"
@@ -201,6 +253,34 @@ export default function NewsPool() {
             placeholder="搜索新闻..."
             className="w-full pl-10 pr-4 py-3 bg-cream-100 border border-cream-300 rounded-xl text-sm focus:outline-none focus:border-accent-coral"
           />
+        </div>
+        
+        {/* 排序选择 */}
+        <div className="flex items-center gap-2">
+          <ArrowUpDown className="w-4 h-4 text-ink-50" />
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            className="px-3 py-2 bg-cream-100 border border-cream-300 rounded-xl text-sm focus:outline-none focus:border-accent-coral"
+          >
+            <option value="score">按评分</option>
+            <option value="created_at">按时间</option>
+          </select>
+        </div>
+        
+        {/* 评分筛选 */}
+        <div className="flex items-center gap-2">
+          <Filter className="w-4 h-4 text-ink-50" />
+          <select
+            value={minScore}
+            onChange={(e) => setMinScore(Number(e.target.value))}
+            className="px-3 py-2 bg-cream-100 border border-cream-300 rounded-xl text-sm focus:outline-none focus:border-accent-coral"
+          >
+            <option value={0}>全部评分</option>
+            <option value={60}>⭐⭐⭐及以上</option>
+            <option value={75}>⭐⭐⭐⭐及以上</option>
+            <option value={90}>⭐⭐⭐⭐⭐及以上</option>
+          </select>
         </div>
       </div>
 
@@ -303,6 +383,14 @@ export default function NewsPool() {
                           )}
                         </div>
                         <div className="flex-1 min-w-0">
+                          {/* 评分展示 */}
+                          <div className="flex items-center justify-between mb-2">
+                            <StarRating score={news.score || 0} size="md" />
+                            <span className="text-sm font-medium text-accent-gold">
+                              {Math.round(news.score || 0)}
+                            </span>
+                          </div>
+                          
                           <h3 className="font-medium text-sm text-ink-300 line-clamp-2 mb-2">
                             {news.title}
                           </h3>
@@ -311,15 +399,20 @@ export default function NewsPool() {
                               {news.summary}
                             </p>
                           )}
-                          <div className="flex items-center gap-2 flex-wrap">
-                            {news.keywords && news.keywords.slice(0, 3).map((keyword, i) => (
-                              <span 
-                                key={i} 
-                                className="text-xs px-2 py-0.5 bg-cream-200 rounded text-ink-50"
-                              >
-                                {keyword}
-                              </span>
-                            ))}
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              {news.keywords && news.keywords.slice(0, 3).map((keyword, i) => (
+                                <span 
+                                  key={i} 
+                                  className="text-xs px-2 py-0.5 bg-cream-200 rounded text-ink-50"
+                                >
+                                  {keyword}
+                                </span>
+                              ))}
+                            </div>
+                            <span className="text-xs text-ink-50">
+                              {new Date(news.created_at).toLocaleDateString('zh-CN')}
+                            </span>
                           </div>
                         </div>
                       </div>

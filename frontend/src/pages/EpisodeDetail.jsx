@@ -64,6 +64,11 @@ export default function EpisodeDetail() {
 
   // 生成状态
   const [generating, setGenerating] = useState(false)
+  
+  // 脚本编辑状态
+  const [editingScript, setEditingScript] = useState(false)
+  const [editedScript, setEditedScript] = useState('')
+  const [savingScript, setSavingScript] = useState(false)
 
   useEffect(() => {
     fetchEpisode()
@@ -127,19 +132,12 @@ export default function EpisodeDetail() {
   }
 
   // 生成脚本
-  const generateScript = async (episodeNewsId) => {
+  const generateScript = async (newsId) => {
     try {
       setGenerating(true)
-      const result = await episodesApi.generateScript(parseInt(id), episodeNewsId)
-      
-      // 更新本地状态
-      setEpisodeNews(episodeNews.map(en => 
-        en.id === episodeNewsId ? { ...en, status: 'script_done', script: result.script } : en
-      ))
-      
-      if (selectedNews?.id === episodeNewsId) {
-        setSelectedNews({ ...selectedNews, status: 'script_done', script: result.script })
-      }
+      const result = await episodesApi.generateScript(parseInt(id), newsId)
+      // Refresh page data
+      await fetchEpisode()
     } catch (err) {
       console.error('Failed to generate script:', err)
     } finally {
@@ -165,6 +163,37 @@ export default function EpisodeDetail() {
       console.error('Failed to generate audio:', err)
     } finally {
       setGenerating(false)
+    }
+  }
+
+  // 开始编辑脚本
+  const startEditScript = () => {
+    setEditedScript(selectedNews.script || '')
+    setEditingScript(true)
+  }
+
+  // 取消编辑脚本
+  const cancelEditScript = () => {
+    setEditingScript(false)
+    setEditedScript('')
+  }
+
+  // 保存脚本
+  const saveScript = async () => {
+    try {
+      setSavingScript(true)
+      await episodesApi.updateScript(parseInt(id), selectedNews.news_id, editedScript)
+      
+      // 更新本地状态
+      setEpisodeNews(episodeNews.map(en => 
+        en.id === selectedNews.id ? { ...en, script: editedScript } : en
+      ))
+      setSelectedNews({ ...selectedNews, script: editedScript })
+      setEditingScript(false)
+    } catch (err) {
+      console.error('Failed to save script:', err)
+    } finally {
+      setSavingScript(false)
     }
   }
 
@@ -275,6 +304,24 @@ export default function EpisodeDetail() {
                     </div>
                     <span className="text-xs text-ink-50">{index + 1}</span>
                   </div>
+                  
+                  {/* 快捷操作按钮 */}
+                  <div className="flex gap-2 mt-3">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); generateScript(en.news_id) }}
+                      disabled={generating || en.status === 'generating'}
+                      className="flex-1 text-xs px-2 py-1 bg-accent-coral text-white rounded-lg hover:bg-accent-coral/80 disabled:opacity-50"
+                    >
+                      {en.script ? '重新生成' : '生成脚本'}
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); generateAudio(en.id) }}
+                      disabled={generating || !en.script || en.status === 'audio_done'}
+                      className="flex-1 text-xs px-2 py-1 bg-accent-sage text-white rounded-lg hover:bg-accent-sage/80 disabled:opacity-50"
+                    >
+                      {en.audio_url ? '重新生成' : '生成音频'}
+                    </button>
+                  </div>
                 </motion.div>
               )
             })
@@ -314,7 +361,7 @@ export default function EpisodeDetail() {
             {/* 操作按钮 -->
             <div className="flex gap-3 mb-6">
               <button
-                onClick={() => generateScript(selectedNews.id)}
+                onClick={() => generateScript(selectedNews.news_id)}
                 disabled={generating}
                 className="flex items-center gap-2 px-4 py-2 bg-accent-coral text-cream-100 rounded-xl font-medium hover:bg-accent-coral/90 disabled:opacity-50"
               >
@@ -331,15 +378,54 @@ export default function EpisodeDetail() {
               </button>
             </div>
 
-            {/* 脚本预览 */}
-            {selectedNews.script && (
-              <div className="bg-cream-100 rounded-xl p-6">
-                <h3 className="font-medium text-ink-300 mb-3">生成的脚本</h3>
+            {/* 脚本区域 */}
+            <div className="bg-cream-100 rounded-xl p-6">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-medium text-ink-300">逐字稿</h3>
+                {!editingScript ? (
+                  <button
+                    onClick={startEditScript}
+                    className="flex items-center gap-1 text-sm text-accent-coral hover:text-accent-coral/80"
+                  >
+                    <Edit3 className="w-4 h-4" />
+                    编辑
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={cancelEditScript}
+                      className="flex items-center gap-1 text-sm text-ink-50 hover:text-ink-300"
+                    >
+                      取消
+                    </button>
+                    <button
+                      onClick={saveScript}
+                      disabled={savingScript}
+                      className="flex items-center gap-1 text-sm text-accent-sage hover:text-accent-sage/80 disabled:opacity-50"
+                    >
+                      {savingScript ? '保存中...' : '保存'}
+                    </button>
+                  </div>
+                )}
+              </div>
+              
+              {editingScript ? (
+                <textarea
+                  value={editedScript}
+                  onChange={(e) => setEditedScript(e.target.value)}
+                  className="w-full h-96 p-4 bg-cream-200 border border-cream-300 rounded-xl text-sm text-ink-300 focus:outline-none focus:border-accent-coral resize-none"
+                  placeholder="在此编辑逐字稿..."
+                />
+              ) : selectedNews.script ? (
                 <pre className="whitespace-pre-wrap text-sm text-ink-50 max-h-96 overflow-y-auto">
                   {selectedNews.script}
                 </pre>
-              </div>
-            )}
+              ) : (
+                <div className="text-center py-8 text-ink-50">
+                  暂无逐字稿，请先点击"生成脚本"按钮
+                </div>
+              )}
+            </div>
           </div>
         ) : (
           <div className="flex items-center justify-center h-full text-ink-50">

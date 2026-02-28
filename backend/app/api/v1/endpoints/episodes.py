@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy.orm import Session, joinedload
 from app.db.session import get_db
 from app.db.models import Episode, EpisodeNews, News, NewsStatus
@@ -99,6 +99,33 @@ def reorder_episode_news(episode_id: int, news_orders: List[dict], db: Session =
     return {"ok": True}
 
 
+@router.put("/{episode_id}/news/{news_id}/script")
+def update_script(
+    episode_id: int,
+    news_id: int,
+    script: str = Body(..., embed=True),
+    db: Session = Depends(get_db)
+):
+    """
+    Update the script for a specific news item (inline editing)
+    """
+    episode_news = db.query(EpisodeNews).filter(
+        EpisodeNews.episode_id == episode_id,
+        EpisodeNews.news_id == news_id
+    ).first()
+    
+    if not episode_news:
+        raise HTTPException(status_code=404, detail="News not found in episode")
+    
+    episode_news.script = script
+    db.commit()
+    db.refresh(episode_news)
+    
+    logger.info(f"Updated script for news {news_id}")
+    
+    return {"script": episode_news.script, "status": episode_news.status.value}
+
+
 @router.post("/{episode_id}/news/{news_id}/generate-script")
 async def generate_script(
     episode_id: int,
@@ -134,10 +161,14 @@ async def generate_script(
         
         # Generate script using LLM
         news_content = news.content or news.summary or news.title
+        logger.info(f"Generating script for news {news_id}, content length: {len(news_content)}")
+        
         script = await podcast_service.generate_script(
             news_content=news_content,
             role_prompt=role_prompt
         )
+        
+        logger.info(f"Script generated successfully, length: {len(script)}")
         
         episode_news.script = script
         episode_news.status = NewsStatus.SCRIPT_DONE

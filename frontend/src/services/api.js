@@ -62,13 +62,20 @@ export const settingsApi = {
 
 // News API
 export const newsApi = {
-  list: (sourceId) => {
-    const params = sourceId ? `?source_id=${sourceId}` : ''
-    return request(`/news/${params}`)
+  list: (params = {}) => {
+    const queryParams = new URLSearchParams()
+    if (params.sourceId) queryParams.append('source_id', params.sourceId)
+    if (params.sortBy) queryParams.append('sort_by', params.sortBy)
+    if (params.order) queryParams.append('order', params.order)
+    if (params.minScore) queryParams.append('min_score', params.minScore)
+    if (params.limit) queryParams.append('limit', params.limit)
+    const query = queryParams.toString()
+    return request(`/news/${query ? '?' + query : ''}`)
   },
   fetch: (sourceId) => sourceId 
     ? request(`/news/fetch?source_id=${sourceId}`, { method: 'POST' })
     : request('/news/fetch', { method: 'POST' }),
+  scoreAll: (limit = 100) => request('/news/score-all?limit=' + limit, { method: 'POST' }),
 }
 
 // Episodes API
@@ -83,6 +90,13 @@ export const episodesApi = {
   listNews: (episodeId) => request(`/episodes/${episodeId}/news`),
   addNews: (episodeId, newsIds) => request(`/episodes/${episodeId}/news`, { method: 'POST', body: newsIds }),
   reorderNews: (episodeId, orders) => request(`/episodes/${episodeId}/news/reorder`, { method: 'PUT', body: orders }),
+  
+  // Script operations
+  updateScript: (episodeId, newsId, script) => 
+    request(`/episodes/${episodeId}/news/${newsId}/script`, { 
+      method: 'PUT', 
+      body: { script }
+    }),
   
   // Generation
   generateScript: (episodeId, newsId) => request(`/episodes/${episodeId}/news/${newsId}/generate-script`, { method: 'POST' }),
