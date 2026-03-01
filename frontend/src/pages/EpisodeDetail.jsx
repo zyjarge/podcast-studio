@@ -165,6 +165,24 @@ export default function EpisodeDetail() {
     }
   }
 
+  // 计算已选新闻的统计信息
+  const selectedStats = (() => {
+    const selected = availableNews.filter(n => selectedNewsIds.includes(n.id))
+    const totalWords = selected.reduce((sum, n) => sum + (n.summary?.length || n.title?.length || 0), 0)
+    const totalDuration = Math.ceil(totalWords / 150 * 60) // 假设每分钟150字
+    return {
+      count: selected.length,
+      words: totalWords,
+      duration: totalDuration,
+      items: selected
+    }
+  })()
+
+  // 从购物车移除
+  const removeFromCart = (newsId) => {
+    setSelectedNewsIds(prev => prev.filter(id => id !== newsId))
+  }
+
   // 从节目移除新闻
   const removeNewsFromEpisode = async (newsId) => {
     // TODO: 实现从节目移除新闻的 API
@@ -524,7 +542,7 @@ export default function EpisodeDetail() {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-cream-100 rounded-3xl p-6 w-[1200px] max-h-[90vh] shadow-2xl flex flex-col"
+              className="bg-cream-100 rounded-3xl p-6 w-[1800px] max-h-[90vh] shadow-2xl flex flex-col"
             >
               <div className="flex items-center justify-between mb-4">
                 <h2 className="font-display text-xl font-semibold text-ink-300">添加新闻</h2>
@@ -601,30 +619,69 @@ export default function EpisodeDetail() {
                 </div>
               </div>
 
+              {/* 购物车 - 已选新闻统计 */}
+              {selectedStats.count > 0 && (
+                <div className="mb-3 bg-gradient-to-r from-accent-coral/20 to-accent-sage/20 rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="font-medium text-ink-300 flex items-center gap-2">
+                      🛒 已选新闻 ({selectedStats.count} 条)
+                    </h3>
+                    <div className="flex items-center gap-4 text-sm text-ink-50">
+                      <span>📝 约 {selectedStats.words} 字</span>
+                      <span>⏱️ 约 {Math.floor(selectedStats.duration / 60)}:{String(selectedStats.duration % 60).padStart(2, '0')}</span>
+                    </div>
+                  </div>
+                  {/* 已选新闻列表 */}
+                  <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
+                    {selectedStats.items.map((news, idx) => (
+                      <div
+                        key={news.id}
+                        className="flex items-center gap-2 px-3 py-1.5 bg-cream-100 rounded-lg text-sm"
+                      >
+                        <span className="text-accent-coral font-medium">{idx + 1}</span>
+                        <span className="truncate max-w-[200px]">{news.title?.slice(0, 15)}...</span>
+                        <button
+                          onClick={() => removeFromCart(news.id)}
+                          className="text-ink-50 hover:text-red-500"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* 多选操作栏 */}
-              <div className="mb-3 p-3 bg-cream-200 rounded-xl flex items-center justify-between">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={selectedNewsIds.length === filteredAvailableNews.length && filteredAvailableNews.length > 0}
-                    onChange={selectAllFiltered}
-                    className="w-4 h-4"
-                  />
-                  <span className="text-sm text-ink-50">
-                    {selectedNewsIds.length > 0 ? `已选 ${selectedNewsIds.length} 项` : '全选'}
-                  </span>
-                </label>
+              <div className="mb-3 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={selectAllFiltered}
+                    className={`px-3 py-1.5 rounded-lg text-sm ${
+                      selectedNewsIds.length === filteredAvailableNews.length && filteredAvailableNews.length > 0
+                        ? 'bg-accent-coral text-white'
+                        : 'bg-cream-300 text-ink-50 hover:bg-cream-400'
+                    }`}
+                  >
+                    {selectedNewsIds.length === filteredAvailableNews.length && filteredAvailableNews.length > 0 ? '全不选' : '全选'}
+                  </button>
+                  {selectedNewsIds.length > 0 && (
+                    <span className="text-sm text-ink-50">
+                      已选 {selectedNewsIds.length} 条
+                    </span>
+                  )}
+                </div>
                 {selectedNewsIds.length > 0 && (
                   <button
                     onClick={addSelectedNews}
                     className="px-4 py-2 bg-accent-coral text-white rounded-xl text-sm font-medium"
                   >
-                    + 添加已选 ({selectedNewsIds.length})
+                    + 添加到节目 ({selectedNewsIds.length})
                   </button>
                 )}
               </div>
 
-              <div className="flex-1 overflow-y-auto grid grid-cols-2 gap-3">
+              <div className="flex-1 overflow-y-auto grid grid-cols-3 gap-3">
                 {filteredAvailableNews.length === 0 ? (
                   <div className="text-center py-8 text-ink-50">
                     暂无新闻可添加
@@ -633,25 +690,21 @@ export default function EpisodeDetail() {
                   filteredAvailableNews.map((news) => (
                     <div
                       key={news.id}
-                      className={`p-4 bg-cream-200 rounded-xl cursor-pointer hover:bg-cream-300 transition-colors ${selectedNewsIds.includes(news.id) ? 'ring-2 ring-accent-coral' : ''}`}
+                      className={`p-4 bg-cream-200 rounded-xl cursor-pointer hover:bg-cream-300 transition-colors ${
+                        selectedNewsIds.includes(news.id) 
+                          ? 'ring-2 ring-accent-coral bg-accent-coral/10' 
+                          : ''
+                      }`}
                       onClick={() => toggleNewsSelection(news.id)}
                     >
-                      <div className="flex items-start gap-2">
-                        <input
-                          type="checkbox"
-                          checked={selectedNewsIds.includes(news.id)}
-                          onChange={() => {}}
-                          className="mt-1 w-4 h-4"
-                          onClick={(e) => e.stopPropagation()}
-                        />
-                        <div className="flex-1">
-                          <h4 className="font-medium text-sm text-ink-300">{news.title}</h4>
-                          <div className="flex items-center gap-2 mt-1">
-                            <span className="text-xs text-ink-50">{news.source}</span>
-                            <span className="text-xs text-ink-50">{Math.round(news.score || 0)}⭐</span>
-                            <span className="text-xs text-ink-50">{new Date(news.created_at).toLocaleDateString('zh-CN')}</span>
-                          </div>
-                        </div>
+                      <h4 className="font-medium text-sm text-ink-300 line-clamp-2">{news.title}</h4>
+                      <div className="flex items-center gap-2 mt-2 text-xs text-ink-50">
+                        <span className="bg-cream-300 px-2 py-0.5 rounded">{news.source?.slice(0,6) || '未知'}</span>
+                        <span className={news.score >= 60 ? 'text-accent-gold' : ''}>{Math.round(news.score || 0)}⭐</span>
+                        <span>{new Date(news.created_at).toLocaleDateString('zh-CN')}</span>
+                        {selectedNewsIds.includes(news.id) && (
+                          <span className="ml-auto text-accent-coral">✓ 已选</span>
+                        )}
                       </div>
                     </div>
                   ))
