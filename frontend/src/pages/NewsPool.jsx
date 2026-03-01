@@ -61,7 +61,7 @@ export default function NewsPool() {
   const [error, setError] = useState(null)
   
   // 排序和筛选状态
-  const [sortBy, setSortBy] = useState('score') // score, created_at
+  const [sortBy, setSortBy] = useState('date_score') // date_score, score, created_at
   const [minScore, setMinScore] = useState(0) // 最低评分筛选
 
   useEffect(() => {
@@ -174,12 +174,17 @@ export default function NewsPool() {
       return true
     })
     
-    // 排序
-    if (sortBy === 'score') {
-      filteredAll.sort((a, b) => (b.score || 0) - (a.score || 0))
-    } else if (sortBy === 'created_at') {
-      filteredAll.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-    }
+    // 排序: 先按日期倒排，再按评分倒排
+    filteredAll.sort((a, b) => {
+      // 先按日期倒排 (最新的在前)
+      const dateA = new Date(a.created_at || 0)
+      const dateB = new Date(b.created_at || 0)
+      const dateDiff = dateB - dateA
+      if (dateDiff !== 0) return dateDiff
+      
+      // 日期相同时，按评分倒排
+      return (b.score || 0) - (a.score || 0)
+    })
     
     // 按来源分组
     const grouped = {}
@@ -263,8 +268,9 @@ export default function NewsPool() {
             onChange={(e) => setSortBy(e.target.value)}
             className="px-3 py-2 bg-cream-100 border border-cream-300 rounded-xl text-sm focus:outline-none focus:border-accent-coral"
           >
-            <option value="score">按评分</option>
-            <option value="created_at">按时间</option>
+            <option value="date_score">推荐 (日期+评分)</option>
+            <option value="score">只看评分</option>
+            <option value="created_at">只看时间</option>
           </select>
         </div>
         

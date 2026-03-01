@@ -60,9 +60,78 @@ def delete_episode(episode_id: int, db: Session = Depends(get_db)):
 
 @router.get("/{episode_id}/news", response_model=List[EpisodeNewsResponse])
 def list_episode_news(episode_id: int, db: Session = Depends(get_db)):
+    """获取节目中的新闻列表（排除已删除的）"""
     return db.query(EpisodeNews).options(
         joinedload(EpisodeNews.news)
-    ).filter(EpisodeNews.episode_id == episode_id).order_by(EpisodeNews.order).all()
+    ).filter(
+        EpisodeNews.episode_id == episode_id,
+        EpisodeNews.deleted_at == None  # 过滤已删除的
+    ).order_by(EpisodeNews.order).all()
+
+
+@router.get("/{episode_id}/news/deleted")
+def list_deleted_news(episode_id: int, db: Session = Depends(get_db)):
+    """获取已删除的新闻列表（回收站）"""
+    return db.query(EpisodeNews).options(
+        joinedload(EpisodeNews.news)
+    ).filter(
+        EpisodeNews.episode_id == episode_id,
+        EpisodeNews.deleted_at != None
+    ).order_by(EpisodeNews.deleted_at.desc()).all()
+
+
+@router.post("/{episode_id}/news/{news_id}/soft-delete")
+def soft_delete_episode_news(episode_id: int, news_id: int, db: Session = Depends(get_db)):
+    """软删除新闻到回收站"""
+    episode_news = db.query(EpisodeNews).filter(
+        EpisodeNews.episode_id == episode_id,
+        EpisodeNews.news_id == news_id
+    ).first()
+    
+    if not episode_news:
+        raise HTTPException(status_code=404, detail="News not found in episode")
+    
+    from datetime import datetime
+    episode_news.deleted_at = datetime.utcnow()
+    db.commit()
+    
+    return {"message": "已移到回收站", "deleted_at": episode_news.deleted_at}
+
+
+@router.post("/{episode_id}/news/{news_id}/restore")
+def restore_episode_news(episode_id: int, news_id: int, db: Session = Depends(get_db)):
+    """从回收站恢复新闻"""
+    episode_news = db.query(EpisodeNews).filter(
+        EpisodeNews.episode_id == episode_id,
+        EpisodeNews.news_id == news_id,
+        EpisodeNews.deleted_at != None
+    ).first()
+    
+    if not episode_news:
+        raise HTTPException(status_code=404, detail="Deleted news not found in episode")
+    
+    episode_news.deleted_at = None
+    db.commit()
+    
+    return {"message": "已恢复"}
+
+
+@router.delete("/{episode_id}/news/{news_id}/permanent")
+def permanent_delete_episode_news(episode_id: int, news_id: int, db: Session = Depends(get_db)):
+    """永久删除新闻"""
+    episode_news = db.query(EpisodeNews).filter(
+        EpisodeNews.episode_id == episode_id,
+        EpisodeNews.news_id == news_id,
+        EpisodeNews.deleted_at != None
+    ).first()
+    
+    if not episode_news:
+        raise HTTPException(status_code=404, detail="Deleted news not found")
+    
+    db.delete(episode_news)
+    db.commit()
+    
+    return {"message": "已永久删除"}
 
 
 @router.post("/{episode_id}/news")

@@ -51,6 +51,16 @@ export default function EpisodeDetail() {
   // 可添加的新闻（从新闻池）
   const [availableNews, setAvailableNews] = useState([])
   const [showAddNews, setShowAddNews] = useState(false)
+  
+  // 添加新闻弹窗筛选状态
+  const [newsFilter, setNewsFilter] = useState({
+    sources: [],
+    minScore: 0,
+    dateRange: 'all'
+  })
+  
+  // 多选状态
+  const [selectedNewsIds, setSelectedNewsIds] = useState([])
   const [searchQuery, setSearchQuery] = useState('')
   const [loadingNews, setLoadingNews] = useState(false)
 
@@ -122,6 +132,36 @@ export default function EpisodeDetail() {
       setShowAddNews(false)
     } catch (err) {
       console.error('Failed to add news:', err)
+    }
+  }
+
+  // 切换新闻选中状态
+  const toggleNewsSelection = (newsId) => {
+    setSelectedNewsIds(prev => 
+      prev.includes(newsId) ? prev.filter(id => id !== newsId) : [...prev, newsId]
+    )
+  }
+
+  // 批量添加选中的新闻
+  const addSelectedNews = async () => {
+    if (selectedNewsIds.length === 0) return
+    try {
+      await episodesApi.addNews(parseInt(id), selectedNewsIds)
+      await fetchEpisode()
+      setShowAddNews(false)
+      setSelectedNewsIds([])
+    } catch (err) {
+      console.error('Failed to add news:', err)
+    }
+  }
+
+  // 全选/取消全选
+  const selectAllFiltered = () => {
+    const ids = filteredAvailableNews.map(n => n.id)
+    if (selectedNewsIds.length === ids.length) {
+      setSelectedNewsIds([])
+    } else {
+      setSelectedNewsIds(ids)
     }
   }
 
@@ -197,9 +237,44 @@ export default function EpisodeDetail() {
     }
   }
 
-  const filteredAvailableNews = availableNews.filter(n => 
-    n.title.toLowerCase().includes(searchQuery.toLowerCase())
-  )
+  const filteredAvailableNews = availableNews.filter(n => {
+    // 搜索筛选
+    if (searchQuery && !n.title.toLowerCase().includes(searchQuery.toLowerCase())) {
+      return false
+    }
+    // 来源筛选 (多选)
+    if (newsFilter.sources.length > 0 && !newsFilter.sources.includes(n.source)) {
+      return false
+    }
+    // 评分筛选
+    if (newsFilter.minScore > 0 && (n.score || 0) < newsFilter.minScore) {
+      return false
+    }
+    // 日期筛选
+    if (newsFilter.dateRange !== 'all') {
+      const newsDate = new Date(n.created_at)
+      const now = new Date()
+      if (newsFilter.dateRange === 'today') {
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+        if (newsDate < today) return false
+      } else if (newsFilter.dateRange === 'week') {
+        const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+        if (newsDate < weekAgo) return false
+      } else if (newsFilter.dateRange === 'month') {
+        const monthAgo = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate())
+        if (newsDate < monthAgo) return false
+      }
+    }
+    return true
+  })
+
+  // 按来源分组 (用于筛选显示)
+  const newsBySource = availableNews.reduce((acc, news) => {
+    const source = news.source || '未知来源'
+    if (!acc[source]) acc[source] = []
+    acc[source].push(news)
+    return acc
+  }, {})
 
   if (loading) {
     return (
@@ -449,7 +524,7 @@ export default function EpisodeDetail() {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-cream-100 rounded-3xl p-6 w-[600px] max-h-[80vh] shadow-2xl flex flex-col"
+              className="bg-cream-100 rounded-3xl p-6 w-[1200px] max-h-[90vh] shadow-2xl flex flex-col"
             >
               <div className="flex items-center justify-between mb-4">
                 <h2 className="font-display text-xl font-semibold text-ink-300">添加新闻</h2>
@@ -472,7 +547,84 @@ export default function EpisodeDetail() {
                 />
               </div>
 
-              <div className="flex-1 overflow-y-auto space-y-3">
+              {/* 筛选控件 - 来源多选 */}
+              <div className="mb-3">
+                <div className="flex flex-wrap gap-2 mb-2">
+                  <button
+                    onClick={() => setNewsFilter(prev => ({ ...prev, sources: Object.keys(newsBySource).length === prev.sources.length ? [] : Object.keys(newsBySource) }))}
+                    className={`px-3 py-1.5 rounded-lg text-sm ${newsFilter.sources.length === Object.keys(newsBySource).length && Object.keys(newsBySource).length > 0 ? 'bg-accent-coral text-white' : 'bg-cream-300 text-ink-50'}`}
+                  >
+                    {newsFilter.sources.length === Object.keys(newsBySource).length ? '全不选' : '全部'}
+                  </button>
+                  {Object.keys(newsBySource).slice(0, 10).map(source => (
+                    <button
+                      key={source}
+                      onClick={() => setNewsFilter(prev => ({
+                        ...prev,
+                        sources: prev.sources.includes(source) ? prev.sources.filter(s => s !== source) : [...prev.sources, source]
+                      }))}
+                      className={`px-3 py-1.5 rounded-lg text-sm ${newsFilter.sources.includes(source) ? 'bg-accent-coral text-white' : 'bg-cream-300 text-ink-50'}`}
+                    >
+                      {source.slice(0, 8)}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex gap-3 flex-wrap">
+                  <select
+                    value={newsFilter.minScore}
+                    onChange={(e) => setNewsFilter(prev => ({ ...prev, minScore: parseInt(e.target.value) }))}
+                    className="px-3 py-2 bg-cream-200 border border-cream-400 rounded-xl text-sm"
+                  >
+                    <option value={0}>全部评分</option>
+                    <option value={60}>⭐⭐⭐及以上</option>
+                    <option value={75}>⭐⭐⭐⭐及以上</option>
+                    <option value={90}>⭐⭐⭐⭐⭐及以上</option>
+                  </select>
+                  <select
+                    value={newsFilter.dateRange}
+                    onChange={(e) => setNewsFilter(prev => ({ ...prev, dateRange: e.target.value }))}
+                    className="px-3 py-2 bg-cream-200 border border-cream-400 rounded-xl text-sm"
+                  >
+                    <option value="all">全部时间</option>
+                    <option value="today">今天</option>
+                    <option value="week">本周</option>
+                    <option value="month">本月</option>
+                  </select>
+                  {(newsFilter.sources.length > 0 || newsFilter.minScore > 0 || newsFilter.dateRange !== 'all') && (
+                    <button
+                      onClick={() => setNewsFilter({ sources: [], minScore: 0, dateRange: 'all' })}
+                      className="px-3 py-2 text-sm text-accent-coral"
+                    >
+                      清除筛选
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* 多选操作栏 */}
+              <div className="mb-3 p-3 bg-cream-200 rounded-xl flex items-center justify-between">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selectedNewsIds.length === filteredAvailableNews.length && filteredAvailableNews.length > 0}
+                    onChange={selectAllFiltered}
+                    className="w-4 h-4"
+                  />
+                  <span className="text-sm text-ink-50">
+                    {selectedNewsIds.length > 0 ? `已选 ${selectedNewsIds.length} 项` : '全选'}
+                  </span>
+                </label>
+                {selectedNewsIds.length > 0 && (
+                  <button
+                    onClick={addSelectedNews}
+                    className="px-4 py-2 bg-accent-coral text-white rounded-xl text-sm font-medium"
+                  >
+                    + 添加已选 ({selectedNewsIds.length})
+                  </button>
+                )}
+              </div>
+
+              <div className="flex-1 overflow-y-auto grid grid-cols-2 gap-3">
                 {filteredAvailableNews.length === 0 ? (
                   <div className="text-center py-8 text-ink-50">
                     暂无新闻可添加
@@ -481,11 +633,26 @@ export default function EpisodeDetail() {
                   filteredAvailableNews.map((news) => (
                     <div
                       key={news.id}
-                      className="p-4 bg-cream-200 rounded-xl cursor-pointer hover:bg-cream-300 transition-colors"
-                      onClick={() => addNewsToEpisode(news.id)}
+                      className={`p-4 bg-cream-200 rounded-xl cursor-pointer hover:bg-cream-300 transition-colors ${selectedNewsIds.includes(news.id) ? 'ring-2 ring-accent-coral' : ''}`}
+                      onClick={() => toggleNewsSelection(news.id)}
                     >
-                      <h4 className="font-medium text-sm text-ink-300">{news.title}</h4>
-                      <p className="text-xs text-ink-50 mt-1 line-clamp-2">{news.summary}</p>
+                      <div className="flex items-start gap-2">
+                        <input
+                          type="checkbox"
+                          checked={selectedNewsIds.includes(news.id)}
+                          onChange={() => {}}
+                          className="mt-1 w-4 h-4"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        <div className="flex-1">
+                          <h4 className="font-medium text-sm text-ink-300">{news.title}</h4>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-xs text-ink-50">{news.source}</span>
+                            <span className="text-xs text-ink-50">{Math.round(news.score || 0)}⭐</span>
+                            <span className="text-xs text-ink-50">{new Date(news.created_at).toLocaleDateString('zh-CN')}</span>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   ))
                 )}

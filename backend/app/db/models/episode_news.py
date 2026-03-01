@@ -25,6 +25,11 @@ class EpisodeNews(Base):
     script = Column(Text, default="")
     audio_url = Column(String, default="")
     error_message = Column(Text, nullable=True)
+    
+    # 软删除字段
+    deleted_at = Column(DateTime, nullable=True)  # 删除时间，7天后物理删除
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     episode = relationship("Episode", back_populates="episode_news")

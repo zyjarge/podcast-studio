@@ -91,6 +91,12 @@ export const episodesApi = {
   addNews: (episodeId, newsIds) => request(`/episodes/${episodeId}/news`, { method: 'POST', body: newsIds }),
   reorderNews: (episodeId, orders) => request(`/episodes/${episodeId}/news/reorder`, { method: 'PUT', body: orders }),
   
+  // 软删除/回收站
+  softDelete: (episodeId, newsId) => request(`/episodes/${episodeId}/news/${newsId}/soft-delete`, { method: 'POST' }),
+  restore: (episodeId, newsId) => request(`/episodes/${episodeId}/news/${newsId}/restore`, { method: 'POST' }),
+  permanentDelete: (episodeId, newsId) => request(`/episodes/${episodeId}/news/${newsId}/permanent`, { method: 'DELETE' }),
+  getDeletedNews: (episodeId) => request(`/episodes/${episodeId}/news/deleted`),
+  
   // Script operations
   updateScript: (episodeId, newsId, script) => 
     request(`/episodes/${episodeId}/news/${newsId}/script`, { 
