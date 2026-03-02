@@ -64,18 +64,12 @@ class RSSService:
         items = []
 
         try:
-            # 尝试修复常见的 XML 解析问题
-            # 1. 处理 Telegram RSS 中的特殊字符问题
+            # 直接使用原始内容，XML 解析器可以处理大部分情况
+            cleaned_content = xml_content
+            
+            # 修复常见的 & 空格问题（如 "& " -> "&amp; "）
             import re
-            # 移除或替换无效的 XML 字符 (除了合法的 Unicode 字符)
-            # 保留合法的 XML 1.0 字符
-            cleaned_content = re.sub(
-                r'[\x00-\x08\x0b\x0c\x0e-\x1f\xd800-\xdfff\ufffe\uffff]',
-                '',
-                xml_content
-            )
-            # 尝试修复未闭合的标签
-            cleaned_content = cleaned_content.replace('& ', '&amp; ')
+            cleaned_content = re.sub(r'& (?=[A-Za-z])', '&amp; ', cleaned_content)
             
             root = ET.fromstring(cleaned_content)
             channel = root.find("channel")

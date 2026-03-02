@@ -77,8 +77,8 @@ export default function NewsPool() {
       const sourcesData = await sourcesApi.list()
       setSources(sourcesData.filter(s => s.enabled))
       
-      // 获取新闻 (按评分排序)
-      const newsData = await newsApi.list({ sortBy: 'score', order: 'desc', limit: 200 })
+      // 获取新闻 (按时间排序，最新在前)
+      const newsData = await newsApi.list({ sortBy: 'created_at', order: 'desc', limit: 200 })
       setAllNews(newsData)
       
       // 按来源分组
@@ -174,15 +174,16 @@ export default function NewsPool() {
       return true
     })
     
-    // 排序: 先按日期倒排，再按评分倒排
+    // 排序: 先按日期倒排（只看日期，不看时间），再按评分倒排
     filteredAll.sort((a, b) => {
-      // 先按日期倒排 (最新的在前)
-      const dateA = new Date(a.created_at || 0)
-      const dateB = new Date(b.created_at || 0)
-      const dateDiff = dateB - dateA
-      if (dateDiff !== 0) return dateDiff
+      // 提取日期部分（只取 YYYY-MM-DD）
+      const dateA = (a.created_at || '').split('T')[0]
+      const dateB = (b.created_at || '').split('T')[0]
       
-      // 日期相同时，按评分倒排
+      // 按日期倒排
+      if (dateB !== dateA) return dateB.localeCompare(dateA)
+      
+      // 同一天内，按评分倒排
       return (b.score || 0) - (a.score || 0)
     })
     
