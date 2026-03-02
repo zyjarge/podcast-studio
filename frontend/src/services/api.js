@@ -109,6 +109,12 @@ export const episodesApi = {
   generateAudio: (episodeId, newsId, voiceId = 'luoyonghao') => 
     request(`/episodes/${episodeId}/news/${newsId}/generate-audio?voice_id=${voiceId}`, { method: 'POST' }),
   generateAll: (episodeId) => request(`/episodes/${episodeId}/generate-all`, { method: 'POST' }),
+  
+  // Batch generation
+  batchGenerate: (episodeId, data) => request(`/episodes/${episodeId}/batch-generate`, { 
+    method: 'POST', 
+    body: data 
+  }),
 }
 
 export { API_BASE }

@@ -3,9 +3,10 @@ from sqlalchemy.orm import Session, joinedload
 from app.db.session import get_db
 from app.db.models import Episode, EpisodeNews, News, NewsStatus
 from app.schemas.episode import EpisodeCreate, EpisodeUpdate, EpisodeResponse
-from app.schemas.episode_news import EpisodeNewsResponse
+from app.schemas.episode_news import EpisodeNewsResponse, EpisodeNewsUpdate
 from app.services.podcast import get_podcast_service
-from typing import List
+from typing import List, Optional
+from pydantic import BaseModel
 import asyncio
 import logging
 
@@ -362,3 +363,99 @@ async def generate_all(
             results.append({"news_id": en.news_id, "status": "error", "error": str(e)})
     
     return {"generated": len(results), "results": results}
+
+
+class BatchGenerateRequest(BaseModel):
+    """批量生成请求"""
+    episode_news_ids: List[int]  # EpisodeNews 的 ID 列表
+    action: str = "all"  # "script" | "audio" | "all"
+
+
+@router.post("/{episode_id}/batch-generate")
+async def batch_generate(
+    episode_id: int,
+    request: BatchGenerateRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    批量生成脚本和音频
+    - action="script": 只生成脚本
+    - action="audio": 只生成音频（需要已有脚本）
+    - action="all": 生成脚本+音频
+    """
+    episode = db.query(Episode).filter(Episode.id == episode_id).first()
+    if not episode:
+        raise HTTPException(status_code=404, detail="Episode not found")
+    
+    # 获取要生成的新闻
+    episode_news_list = db.query(EpisodeNews).filter(
+        EpisodeNews.id.in_(request.episode_news_ids)
+    ).all()
+    
+    if not episode_news_list:
+        raise HTTPException(status_code=404, detail="No episode news found")
+    
+    results = []
+    podcast_service = get_podcast_service()
+    
+    for en in episode_news_list:
+        try:
+            news = db.query(News).filter(News.id == en.news_id).first()
+            if not news:
+                continue
+            
+            # 生成脚本
+            if request.action in ("script", "all"):
+                en.status = NewsStatus.GENERATING
+                db.commit()
+                
+                news_content = news.content or news.summary or news.title
+                script = await podcast_service.generate_script(news_content=news_content)
+                en.script = script
+                en.status = NewsStatus.SCRIPT_DONE
+                db.commit()
+            
+            # 生成音频
+            if request.action in ("audio", "all"):
+                # 如果没有脚本，先生成脚本
+                if not en.script:
+                    en.status = NewsStatus.GENERATING
+                    db.commit()
+                    news_content = news.content or news.summary or news.title
+                    script = await podcast_service.generate_script(news_content=news_content)
+                    en.script = script
+                    en.status = NewsStatus.SCRIPT_DONE
+                    db.commit()
+                
+                en.status = NewsStatus.GENERATING
+                db.commit()
+                
+                audio_path = await podcast_service.generate_audio(script=en.script)
+                en.audio_url = audio_path
+                en.status = NewsStatus.AUDIO_DONE
+                db.commit()
+            
+            results.append({
+                "episode_news_id": en.id,
+                "news_id": en.news_id,
+                "status": en.status.value,
+                "action": request.action
+            })
+            
+        except Exception as e:
+            logger.error(f"Error generating for news {en.news_id}: {e}")
+            en.status = NewsStatus.ERROR
+            en.error_message = str(e)
+            db.commit()
+            results.append({
+                "episode_news_id": en.id,
+                "news_id": en.news_id,
+                "status": "error",
+                "error": str(e)
+            })
+    
+    return {
+        "total": len(results),
+        "success": sum(1 for r in results if r.get("status") != "error"),
+        "results": results
+    }

@@ -80,6 +80,27 @@ export default function EpisodeDetail() {
   const [editedScript, setEditedScript] = useState('')
   const [savingScript, setSavingScript] = useState(false)
 
+  // 删除确认状态 (null = 正常模式, 数字 = 删除模式下的新闻ID)
+  const [deleteMode, setDeleteMode] = useState(null)
+
+  // 移动端状态
+  const [mobileTab, setMobileTab] = useState('list') // 'list' | 'detail'
+  const [isMobile, setIsMobile] = useState(false)
+
+  // 检测移动端
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768)
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+    return () => window.removeEventListener('resize', checkMobile)
+  }, [])
+
+  // 移动端点击新闻
+  const handleMobileNewsClick = (en) => {
+    setSelectedNews(en)
+    if (isMobile) setMobileTab('detail')
+  }
+
   useEffect(() => {
     fetchEpisode()
   }, [id])
@@ -255,6 +276,23 @@ export default function EpisodeDetail() {
     }
   }
 
+  // 删除新闻
+  const handleDeleteNews = async (episodeNews) => {
+    try {
+      await episodesApi.softDelete(parseInt(id), episodeNews.news_id)
+      // 从列表中移除
+      setEpisodeNews(prev => prev.filter(en => en.id !== episodeNews.id))
+      // 如果删除的是当前选中的，清空选择
+      if (selectedNews?.id === episodeNews.id) {
+        setSelectedNews(null)
+      }
+      setDeleteMode(null)
+    } catch (err) {
+      console.error('删除失败:', err)
+      alert('删除失败')
+    }
+  }
+
   const filteredAvailableNews = availableNews.filter(n => {
     // 搜索筛选
     if (searchQuery && !n.title.toLowerCase().includes(searchQuery.toLowerCase())) {
@@ -317,9 +355,21 @@ export default function EpisodeDetail() {
   }
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex h-screen overflow-hidden">
+      {/* 移动端顶部栏 */}
+      {isMobile && (
+        <div className="fixed top-0 left-0 right-0 z-40 bg-cream-200 border-b border-cream-300 px-4 py-3 flex items-center justify-between">
+          <button onClick={() => navigate('/')} className="flex items-center gap-1 text-ink-50">
+            <ArrowLeft className="w-5 h-5" />
+            <span className="font-medium">返回</span>
+          </button>
+          <h1 className="font-semibold text-ink-300 truncate max-w-[150px]">{episode?.title}</h1>
+          <button onClick={() => setMobileTab('detail')} className="w-14" />
+        </div>
+      )}
+
       {/* 左侧：新闻列表 */}
-      <div className="w-[400px] bg-cream-200 border-r border-cream-300 flex flex-col">
+      <div className={`w-[400px] bg-cream-200 border-r border-cream-300 flex-col ${isMobile && mobileTab !== 'list' ? 'hidden' : 'flex'}`}>
         {/* 头部 */}
         <div className="p-5 border-b border-cream-300">
           <button 
@@ -369,20 +419,23 @@ export default function EpisodeDetail() {
               暂无新闻，点击上方按钮添加
             </div>
           ) : (
-            episodeNews.map((en, index) => {
-              const status = statusConfig[en.status] || statusConfig.pending
-              const Icon = status.icon
-              
-              return (
-                <motion.div
-                  key={en.id}
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  className={`p-4 bg-cream-100 rounded-xl border-2 cursor-pointer transition-colors ${
-                    selectedNews?.id === en.id ? 'border-accent-coral' : 'border-transparent hover:border-cream-400'
-                  }`}
-                  onClick={() => setSelectedNews(en)}
-                >
+            <AnimatePresence>
+              {episodeNews.map((en, index) => {
+                const status = statusConfig[en.status] || statusConfig.pending
+                const Icon = status.icon
+                
+                return (
+                  <motion.div
+                    key={en.id}
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, height: 0, marginBottom: 0, padding: 0 }}
+                    transition={{ duration: 0.3 }}
+                    className={`p-4 bg-cream-100 rounded-xl border-2 cursor-pointer transition-colors ${
+                      selectedNews?.id === en.id ? 'border-accent-coral' : 'border-transparent hover:border-cream-400'
+                    }`}
+                    onClick={() => handleMobileNewsClick(en)}
+                  >
                   <div className="flex items-start gap-3">
                     <div className={`p-2 rounded-lg ${status.bgColor}`}>
                       <Icon className={`w-4 h-4 ${status.textColor}`} />
@@ -414,10 +467,38 @@ export default function EpisodeDetail() {
                     >
                       {en.audio_url ? '重新生成' : '生成音频'}
                     </button>
+                    {/* 删除/确认按钮组 - 防止误触 */}
+                    {deleteMode === en.id ? (
+                      <>
+                        {/* ✓ 确认 - 在左边 */}
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleDeleteNews(en) }}
+                          className="text-xs px-2 py-1 bg-accent-coral text-white rounded-lg hover:bg-accent-coral/90"
+                        >
+                          ✓
+                        </button>
+                        {/* ✕ 取消 - 在右边，需要右移取消 */}
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setDeleteMode(null) }}
+                          className="text-xs px-2 py-1 bg-cream-300 text-ink-300 rounded-lg hover:bg-cream-400"
+                        >
+                          ✕
+                        </button>
+                      </>
+                    ) : (
+                      /* 垃圾桶图标 */
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setDeleteMode(en.id) }}
+                        className="text-xs px-2 py-1 bg-accent-coral/20 text-accent-coral rounded-lg hover:bg-accent-coral/40"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    )}
                   </div>
                 </motion.div>
               )
-            })
+            })}
+            </AnimatePresence>
           )}
         </div>
       </div>
