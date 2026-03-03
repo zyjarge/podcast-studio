@@ -23,7 +23,8 @@ import {
   Edit3,
   Trash2,
   ChevronDown,
-  Loader2
+  Loader2,
+  ShoppingCart
 } from 'lucide-react'
 import { episodesApi, newsApi } from '../services/api'
 
@@ -59,6 +60,12 @@ export default function EpisodeDetail() {
     dateRange: 'all'
   })
   
+  // 添加新闻弹窗 - 当前选中的来源标签
+  const [activeSourceTab, setActiveSourceTab] = useState('all')
+  
+  // 抓取新闻中
+  const [fetchingNews, setFetchingNews] = useState(false)
+  
   // 多选状态
   const [selectedNewsIds, setSelectedNewsIds] = useState([])
   const [searchQuery, setSearchQuery] = useState('')
@@ -79,27 +86,6 @@ export default function EpisodeDetail() {
   const [editingScript, setEditingScript] = useState(false)
   const [editedScript, setEditedScript] = useState('')
   const [savingScript, setSavingScript] = useState(false)
-
-  // 删除确认状态 (null = 正常模式, 数字 = 删除模式下的新闻ID)
-  const [deleteMode, setDeleteMode] = useState(null)
-
-  // 移动端状态
-  const [mobileTab, setMobileTab] = useState('list') // 'list' | 'detail'
-  const [isMobile, setIsMobile] = useState(false)
-
-  // 检测移动端
-  useEffect(() => {
-    const checkMobile = () => setIsMobile(window.innerWidth < 768)
-    checkMobile()
-    window.addEventListener('resize', checkMobile)
-    return () => window.removeEventListener('resize', checkMobile)
-  }, [])
-
-  // 移动端点击新闻
-  const handleMobileNewsClick = (en) => {
-    setSelectedNews(en)
-    if (isMobile) setMobileTab('detail')
-  }
 
   useEffect(() => {
     fetchEpisode()
@@ -173,6 +159,21 @@ export default function EpisodeDetail() {
       setSelectedNewsIds([])
     } catch (err) {
       console.error('Failed to add news:', err)
+    }
+  }
+
+  // 抓取最新新闻
+  const handleFetchLatestNews = async () => {
+    setFetchingNews(true)
+    try {
+      await newsApi.fetchAll()
+      // 刷新新闻列表
+      const allNews = await newsApi.list()
+      setAvailableNews(allNews)
+    } catch (err) {
+      console.error('Failed to fetch news:', err)
+    } finally {
+      setFetchingNews(false)
     }
   }
 
@@ -276,30 +277,13 @@ export default function EpisodeDetail() {
     }
   }
 
-  // 删除新闻
-  const handleDeleteNews = async (episodeNews) => {
-    try {
-      await episodesApi.softDelete(parseInt(id), episodeNews.news_id)
-      // 从列表中移除
-      setEpisodeNews(prev => prev.filter(en => en.id !== episodeNews.id))
-      // 如果删除的是当前选中的，清空选择
-      if (selectedNews?.id === episodeNews.id) {
-        setSelectedNews(null)
-      }
-      setDeleteMode(null)
-    } catch (err) {
-      console.error('删除失败:', err)
-      alert('删除失败')
-    }
-  }
-
   const filteredAvailableNews = availableNews.filter(n => {
-    // 搜索筛选
-    if (searchQuery && !n.title.toLowerCase().includes(searchQuery.toLowerCase())) {
+    // Tab 来源筛选
+    if (activeSourceTab !== 'all' && n.source !== activeSourceTab) {
       return false
     }
-    // 来源筛选 (多选)
-    if (newsFilter.sources.length > 0 && !newsFilter.sources.includes(n.source)) {
+    // 搜索筛选
+    if (searchQuery && !n.title.toLowerCase().includes(searchQuery.toLowerCase())) {
       return false
     }
     // 评分筛选
@@ -355,21 +339,9 @@ export default function EpisodeDetail() {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      {/* 移动端顶部栏 */}
-      {isMobile && (
-        <div className="fixed top-0 left-0 right-0 z-40 bg-cream-200 border-b border-cream-300 px-4 py-3 flex items-center justify-between">
-          <button onClick={() => navigate('/')} className="flex items-center gap-1 text-ink-50">
-            <ArrowLeft className="w-5 h-5" />
-            <span className="font-medium">返回</span>
-          </button>
-          <h1 className="font-semibold text-ink-300 truncate max-w-[150px]">{episode?.title}</h1>
-          <button onClick={() => setMobileTab('detail')} className="w-14" />
-        </div>
-      )}
-
+    <div className="flex min-h-screen">
       {/* 左侧：新闻列表 */}
-      <div className={`w-[400px] bg-cream-200 border-r border-cream-300 flex-col ${isMobile && mobileTab !== 'list' ? 'hidden' : 'flex'}`}>
+      <div className="w-[400px] bg-cream-200 border-r border-cream-300 flex flex-col">
         {/* 头部 */}
         <div className="p-5 border-b border-cream-300">
           <button 
@@ -419,23 +391,20 @@ export default function EpisodeDetail() {
               暂无新闻，点击上方按钮添加
             </div>
           ) : (
-            <AnimatePresence>
-              {episodeNews.map((en, index) => {
-                const status = statusConfig[en.status] || statusConfig.pending
-                const Icon = status.icon
-                
-                return (
-                  <motion.div
-                    key={en.id}
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, height: 0, marginBottom: 0, padding: 0 }}
-                    transition={{ duration: 0.3 }}
-                    className={`p-4 bg-cream-100 rounded-xl border-2 cursor-pointer transition-colors ${
-                      selectedNews?.id === en.id ? 'border-accent-coral' : 'border-transparent hover:border-cream-400'
-                    }`}
-                    onClick={() => handleMobileNewsClick(en)}
-                  >
+            episodeNews.map((en, index) => {
+              const status = statusConfig[en.status] || statusConfig.pending
+              const Icon = status.icon
+              
+              return (
+                <motion.div
+                  key={en.id}
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className={`p-4 bg-cream-100 rounded-xl border-2 cursor-pointer transition-colors ${
+                    selectedNews?.id === en.id ? 'border-accent-coral' : 'border-transparent hover:border-cream-400'
+                  }`}
+                  onClick={() => setSelectedNews(en)}
+                >
                   <div className="flex items-start gap-3">
                     <div className={`p-2 rounded-lg ${status.bgColor}`}>
                       <Icon className={`w-4 h-4 ${status.textColor}`} />
@@ -467,38 +436,10 @@ export default function EpisodeDetail() {
                     >
                       {en.audio_url ? '重新生成' : '生成音频'}
                     </button>
-                    {/* 删除/确认按钮组 - 防止误触 */}
-                    {deleteMode === en.id ? (
-                      <>
-                        {/* ✓ 确认 - 在左边 */}
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleDeleteNews(en) }}
-                          className="text-xs px-2 py-1 bg-accent-coral text-white rounded-lg hover:bg-accent-coral/90"
-                        >
-                          ✓
-                        </button>
-                        {/* ✕ 取消 - 在右边，需要右移取消 */}
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setDeleteMode(null) }}
-                          className="text-xs px-2 py-1 bg-cream-300 text-ink-300 rounded-lg hover:bg-cream-400"
-                        >
-                          ✕
-                        </button>
-                      </>
-                    ) : (
-                      /* 垃圾桶图标 */
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setDeleteMode(en.id) }}
-                        className="text-xs px-2 py-1 bg-accent-coral/20 text-accent-coral rounded-lg hover:bg-accent-coral/40"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
-                    )}
                   </div>
                 </motion.div>
               )
-            })}
-            </AnimatePresence>
+            })
           )}
         </div>
       </div>
@@ -608,188 +549,224 @@ export default function EpisodeDetail() {
         )}
       </div>
 
-      {/* 添加新闻弹窗 */}
+      {/* 添加新闻弹窗 - 新设计：Tab导航 + 左右布局 */}
       <AnimatePresence>
         {showAddNews && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-ink-900/50 flex items-center justify-center z-50"
+            className="fixed inset-0 bg-ink-900/60 flex items-center justify-center z-50 p-4"
             onClick={() => setShowAddNews(false)}
           >
             <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
+              initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
+              exit={{ scale: 0.95, opacity: 0 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-cream-100 rounded-3xl p-6 w-[1800px] max-h-[90vh] shadow-2xl flex flex-col"
+              className="bg-cream-100 rounded-2xl w-full max-w-6xl h-[85vh] shadow-2xl flex overflow-hidden"
             >
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="font-display text-xl font-semibold text-ink-300">添加新闻</h2>
-                <button
-                  onClick={() => setShowAddNews(false)}
-                  className="p-2 hover:bg-cream-200 rounded-xl transition-colors"
-                >
-                  <X className="w-5 h-5 text-ink-50" />
-                </button>
-              </div>
-
-              <div className="relative mb-4">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-ink-50" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="搜索新闻..."
-                  className="w-full pl-10 pr-4 py-3 bg-cream-200 border border-cream-400 rounded-xl text-sm focus:outline-none focus:border-accent-coral"
-                />
-              </div>
-
-              {/* 筛选控件 - 来源多选 */}
-              <div className="mb-3">
-                <div className="flex flex-wrap gap-2 mb-2">
+              {/* 左侧：新闻列表区域 */}
+              <div className="flex-1 flex flex-col border-r border-cream-300 min-w-0">
+                {/* 头部 */}
+                <div className="flex items-center justify-between px-5 py-4 border-b border-cream-300 bg-cream-200">
+                  <div className="flex items-center gap-3">
+                    <h2 className="font-display text-lg font-semibold text-ink-300">📰 添加新闻</h2>
+                    <button
+                      onClick={handleFetchLatestNews}
+                      disabled={fetchingNews}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-accent-coral text-white text-xs rounded-lg hover:bg-accent-coral/90 disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${fetchingNews ? 'animate-spin' : ''}`} />
+                      {fetchingNews ? '抓取中...' : '抓取最新'}
+                    </button>
+                  </div>
                   <button
-                    onClick={() => setNewsFilter(prev => ({ ...prev, sources: Object.keys(newsBySource).length === prev.sources.length ? [] : Object.keys(newsBySource) }))}
-                    className={`px-3 py-1.5 rounded-lg text-sm ${newsFilter.sources.length === Object.keys(newsBySource).length && Object.keys(newsBySource).length > 0 ? 'bg-accent-coral text-white' : 'bg-cream-300 text-ink-50'}`}
+                    onClick={() => setShowAddNews(false)}
+                    className="p-2 hover:bg-cream-300 rounded-lg transition-colors"
                   >
-                    {newsFilter.sources.length === Object.keys(newsBySource).length ? '全不选' : '全部'}
+                    <X className="w-5 h-5 text-ink-50" />
                   </button>
-                  {Object.keys(newsBySource).slice(0, 10).map(source => (
+                </div>
+
+                {/* Tab 导航 */}
+                <div className="flex items-center gap-1 px-4 py-2 border-b border-cream-200 bg-cream-100 overflow-x-auto">
+                  <button
+                    onClick={() => setActiveSourceTab('all')}
+                    className={`px-4 py-2 rounded-lg text-sm whitespace-nowrap ${
+                      activeSourceTab === 'all' 
+                        ? 'bg-accent-coral text-white' 
+                        : 'text-ink-50 hover:bg-cream-200'
+                    }`}
+                  >
+                    全部
+                  </button>
+                  {Object.keys(newsBySource).map(source => (
                     <button
                       key={source}
-                      onClick={() => setNewsFilter(prev => ({
-                        ...prev,
-                        sources: prev.sources.includes(source) ? prev.sources.filter(s => s !== source) : [...prev.sources, source]
-                      }))}
-                      className={`px-3 py-1.5 rounded-lg text-sm ${newsFilter.sources.includes(source) ? 'bg-accent-coral text-white' : 'bg-cream-300 text-ink-50'}`}
+                      onClick={() => setActiveSourceTab(source)}
+                      className={`px-4 py-2 rounded-lg text-sm whitespace-nowrap ${
+                        activeSourceTab === source 
+                          ? 'bg-accent-coral text-white' 
+                          : 'text-ink-50 hover:bg-cream-200'
+                      }`}
                     >
-                      {source.slice(0, 8)}
+                      {source}
                     </button>
                   ))}
                 </div>
-                <div className="flex gap-3 flex-wrap">
-                  <select
-                    value={newsFilter.minScore}
-                    onChange={(e) => setNewsFilter(prev => ({ ...prev, minScore: parseInt(e.target.value) }))}
-                    className="px-3 py-2 bg-cream-200 border border-cream-400 rounded-xl text-sm"
-                  >
-                    <option value={0}>全部评分</option>
-                    <option value={60}>⭐⭐⭐及以上</option>
-                    <option value={75}>⭐⭐⭐⭐及以上</option>
-                    <option value={90}>⭐⭐⭐⭐⭐及以上</option>
-                  </select>
-                  <select
-                    value={newsFilter.dateRange}
-                    onChange={(e) => setNewsFilter(prev => ({ ...prev, dateRange: e.target.value }))}
-                    className="px-3 py-2 bg-cream-200 border border-cream-400 rounded-xl text-sm"
-                  >
-                    <option value="all">全部时间</option>
-                    <option value="today">今天</option>
-                    <option value="week">本周</option>
-                    <option value="month">本月</option>
-                  </select>
-                  {(newsFilter.sources.length > 0 || newsFilter.minScore > 0 || newsFilter.dateRange !== 'all') && (
-                    <button
-                      onClick={() => setNewsFilter({ sources: [], minScore: 0, dateRange: 'all' })}
-                      className="px-3 py-2 text-sm text-accent-coral"
-                    >
-                      清除筛选
-                    </button>
+
+                {/* 搜索框 */}
+                <div className="px-4 py-3 border-b border-cream-200">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-50" />
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="搜索新闻标题..."
+                      className="w-full pl-9 pr-3 py-2 bg-white border border-cream-300 rounded-lg text-sm focus:outline-none focus:border-accent-coral"
+                    />
+                  </div>
+                </div>
+
+                {/* 新闻列表 */}
+                <div className="flex-1 overflow-y-auto overflow-x-hidden p-4">
+                  {filteredAvailableNews.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-full text-ink-50">
+                      <Search className="w-12 h-12 mb-3 opacity-30" />
+                      <p>暂无匹配的新闻</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {filteredAvailableNews.map((news) => (
+                        <motion.div
+                          key={news.id}
+                          whileHover={{ scale: 1.01 }}
+                          whileTap={{ scale: 0.99 }}
+                          className={`p-3 bg-white rounded-xl border-2 cursor-pointer transition-all ${
+                            selectedNewsIds.includes(news.id) 
+                              ? 'border-accent-coral bg-accent-coral/5' 
+                              : 'border-cream-200 hover:border-cream-400'
+                          }`}
+                          onClick={() => toggleNewsSelection(news.id)}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className={`w-5 h-5 rounded border-2 flex-shrink-0 flex items-center justify-center ${
+                              selectedNewsIds.includes(news.id) 
+                                ? 'border-accent-coral bg-accent-coral' 
+                                : 'border-cream-400'
+                            }`}>
+                              {selectedNewsIds.includes(news.id) && (
+                                <CheckCircle2 className="w-3 h-3 text-white" />
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0 overflow-hidden">
+                              <h4 className="font-medium text-sm text-ink-300 line-clamp-2">{news.title}</h4>
+                              <div className="flex items-center gap-2 mt-1.5 text-xs text-ink-50">
+                                <span className="bg-cream-100 px-2 py-0.5 rounded">{news.source?.slice(0,6) || '未知'}</span>
+                                <span className={news.score >= 60 ? 'text-accent-gold font-medium' : ''}>{Math.round(news.score || 0)}⭐</span>
+                                <span>{new Date(news.created_at).toLocaleDateString('zh-CN')}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </motion.div>
+                      ))}
+                    </div>
                   )}
                 </div>
               </div>
 
-              {/* 购物车 - 已选新闻统计 */}
-              {selectedStats.count > 0 && (
-                <div className="mb-3 bg-gradient-to-r from-accent-coral/20 to-accent-sage/20 rounded-xl p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="font-medium text-ink-300 flex items-center gap-2">
-                      🛒 已选新闻 ({selectedStats.count} 条)
-                    </h3>
-                    <div className="flex items-center gap-4 text-sm text-ink-50">
-                      <span>📝 约 {selectedStats.words} 字</span>
-                      <span>⏱️ 约 {Math.floor(selectedStats.duration / 60)}:{String(selectedStats.duration % 60).padStart(2, '0')}</span>
+              {/* 右侧：购物车 */}
+              <div className="w-80 flex-shrink-0 bg-cream-200 flex flex-col">
+                {/* 购物车头部 */}
+                <div className="px-4 py-4 border-b border-cream-300">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-semibold text-ink-300">🛒 已选新闻</h3>
+                    {selectedStats.count > 0 && (
+                      <button
+                        onClick={() => setSelectedNewsIds([])}
+                        className="text-xs text-red-500 hover:text-red-600"
+                      >
+                        清空
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* 购物车统计 */}
+                {selectedStats.count > 0 && (
+                  <div className="px-4 py-3 bg-gradient-to-r from-accent-coral/10 to-accent-sage/10 border-b border-cream-300">
+                    <div className="grid grid-cols-2 gap-2 text-center">
+                      <div>
+                        <div className="text-lg font-semibold text-accent-coral">{selectedStats.count}</div>
+                        <div className="text-xs text-ink-50">条新闻</div>
+                      </div>
+                      <div>
+                        <div className="text-lg font-semibold text-accent-coral">{selectedStats.words}</div>
+                        <div className="text-xs text-ink-50">总字数</div>
+                      </div>
+                      <div className="col-span-2">
+                        <div className="text-lg font-semibold text-accent-sage">
+                          ⏱️ {Math.floor(selectedStats.duration / 60)}:{String(selectedStats.duration % 60).padStart(2, '0')}
+                        </div>
+                        <div className="text-xs text-ink-50">预估时长</div>
+                      </div>
                     </div>
                   </div>
-                  {/* 已选新闻列表 */}
-                  <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
-                    {selectedStats.items.map((news, idx) => (
+                )}
+
+                {/* 已选新闻列表 */}
+                <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                  {selectedStats.count === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-full text-ink-50 text-sm">
+                      <div className="w-16 h-16 mb-3 rounded-full bg-cream-300 flex items-center justify-center">
+                        <ShoppingCart className="w-8 h-8 opacity-30" />
+                      </div>
+                      <p>点击左侧新闻添加</p>
+                    </div>
+                  ) : (
+                    selectedStats.items.map((news, idx) => (
                       <div
                         key={news.id}
-                        className="flex items-center gap-2 px-3 py-1.5 bg-cream-100 rounded-lg text-sm"
+                        className="p-3 bg-white rounded-lg border border-cream-200"
                       >
-                        <span className="text-accent-coral font-medium">{idx + 1}</span>
-                        <span className="truncate max-w-[200px]">{news.title?.slice(0, 15)}...</span>
-                        <button
-                          onClick={() => removeFromCart(news.id)}
-                          className="text-ink-50 hover:text-red-500"
-                        >
-                          ✕
-                        </button>
+                        <div className="flex items-start gap-2">
+                          <span className="w-5 h-5 flex-shrink-0 flex items-center justify-center bg-accent-coral text-white text-xs rounded-full">
+                            {idx + 1}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <h4 className="text-xs font-medium text-ink-300 line-clamp-2">{news.title}</h4>
+                            <div className="flex items-center justify-between mt-1">
+                              <span className="text-xs text-ink-50">
+                                {news.summary?.length || news.title?.length || 0} 字
+                              </span>
+                              <button
+                                onClick={() => removeFromCart(news.id)}
+                                className="text-xs text-red-400 hover:text-red-500"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          </div>
+                        </div>
                       </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* 多选操作栏 */}
-              <div className="mb-3 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={selectAllFiltered}
-                    className={`px-3 py-1.5 rounded-lg text-sm ${
-                      selectedNewsIds.length === filteredAvailableNews.length && filteredAvailableNews.length > 0
-                        ? 'bg-accent-coral text-white'
-                        : 'bg-cream-300 text-ink-50 hover:bg-cream-400'
-                    }`}
-                  >
-                    {selectedNewsIds.length === filteredAvailableNews.length && filteredAvailableNews.length > 0 ? '全不选' : '全选'}
-                  </button>
-                  {selectedNewsIds.length > 0 && (
-                    <span className="text-sm text-ink-50">
-                      已选 {selectedNewsIds.length} 条
-                    </span>
+                    ))
                   )}
                 </div>
-                {selectedNewsIds.length > 0 && (
+
+                {/* 底部操作栏 */}
+                <div className="p-4 border-t border-cream-300 bg-cream-100">
                   <button
                     onClick={addSelectedNews}
-                    className="px-4 py-2 bg-accent-coral text-white rounded-xl text-sm font-medium"
+                    disabled={selectedStats.count === 0}
+                    className="w-full py-3 bg-accent-coral text-white rounded-xl font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent-coral/90 transition-colors"
                   >
-                    + 添加到节目 ({selectedNewsIds.length})
+                    {selectedStats.count > 0 
+                      ? `+ 添加到节目 (${selectedStats.count})` 
+                      : '请选择新闻'}
                   </button>
-                )}
-              </div>
-
-              <div className="flex-1 overflow-y-auto grid grid-cols-3 gap-3">
-                {filteredAvailableNews.length === 0 ? (
-                  <div className="text-center py-8 text-ink-50">
-                    暂无新闻可添加
-                  </div>
-                ) : (
-                  filteredAvailableNews.map((news) => (
-                    <div
-                      key={news.id}
-                      className={`p-4 bg-cream-200 rounded-xl cursor-pointer hover:bg-cream-300 transition-colors ${
-                        selectedNewsIds.includes(news.id) 
-                          ? 'ring-2 ring-accent-coral bg-accent-coral/10' 
-                          : ''
-                      }`}
-                      onClick={() => toggleNewsSelection(news.id)}
-                    >
-                      <h4 className="font-medium text-sm text-ink-300 line-clamp-2">{news.title}</h4>
-                      <div className="flex items-center gap-2 mt-2 text-xs text-ink-50">
-                        <span className="bg-cream-300 px-2 py-0.5 rounded">{news.source?.slice(0,6) || '未知'}</span>
-                        <span className={news.score >= 60 ? 'text-accent-gold' : ''}>{Math.round(news.score || 0)}⭐</span>
-                        <span>{new Date(news.created_at).toLocaleDateString('zh-CN')}</span>
-                        {selectedNewsIds.includes(news.id) && (
-                          <span className="ml-auto text-accent-coral">✓ 已选</span>
-                        )}
-                      </div>
-                    </div>
-                  ))
-                )}
+                </div>
               </div>
             </motion.div>
           </motion.div>
