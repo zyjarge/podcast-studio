@@ -87,6 +87,9 @@ export default function EpisodeDetail() {
   const [editedScript, setEditedScript] = useState('')
   const [savingScript, setSavingScript] = useState(false)
 
+  // 删除确认状态 (null = 正常模式, 数字 = 删除模式下的新闻ID)
+  const [deleteMode, setDeleteMode] = useState(null)
+
   useEffect(() => {
     fetchEpisode()
   }, [id])
@@ -243,6 +246,23 @@ export default function EpisodeDetail() {
       console.error('Failed to generate audio:', err)
     } finally {
       setGenerating(false)
+    }
+  }
+
+  // 删除新闻
+  const handleDeleteNews = async (episodeNews) => {
+    try {
+      await episodesApi.softDelete(parseInt(id), episodeNews.news_id)
+      // 从列表中移除
+      setEpisodeNews(prev => prev.filter(en => en.id !== episodeNews.id))
+      // 如果删除的是当前选中的，清空选择
+      if (selectedNews?.id === episodeNews.id) {
+        setSelectedNews(null)
+      }
+      setDeleteMode(null)
+    } catch (err) {
+      console.error('删除失败:', err)
+      alert('删除失败')
     }
   }
 
@@ -436,6 +456,34 @@ export default function EpisodeDetail() {
                     >
                       {en.audio_url ? '重新生成' : '生成音频'}
                     </button>
+                    
+                    {/* 删除/确认按钮组 - 防止误触 */}
+                    {deleteMode === en.id ? (
+                      <>
+                        {/* ✓ 确认 - 在左边 */}
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleDeleteNews(en) }}
+                          className="text-xs px-2 py-1 bg-accent-coral text-white rounded-lg hover:bg-accent-coral/90"
+                        >
+                          ✓
+                        </button>
+                        {/* ✕ 取消 - 在右边，需要右移取消 */}
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setDeleteMode(null) }}
+                          className="text-xs px-2 py-1 bg-cream-300 text-ink-300 rounded-lg hover:bg-cream-400"
+                        >
+                          ✕
+                        </button>
+                      </>
+                    ) : (
+                      /* 垃圾桶图标 */
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setDeleteMode(en.id) }}
+                        className="text-xs px-2 py-1 bg-accent-coral/20 text-accent-coral rounded-lg hover:bg-accent-coral/40"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    )}
                   </div>
                 </motion.div>
               )
