@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
+import { ReactSortable } from 'react-sortablejs'
 import {
   ArrowLeft,
   Plus,
@@ -93,6 +94,17 @@ export default function EpisodeDetail() {
   useEffect(() => {
     fetchEpisode()
   }, [id])
+
+  // SortableJS 拖拽结束
+  const handleSortEnd = (evt) => {
+    if (evt.oldIndex !== evt.newIndex) {
+      const newOrder = [...episodeNews]
+      const [movedItem] = newOrder.splice(evt.oldIndex, 1)
+      newOrder.splice(evt.newIndex, 0, movedItem)
+      setEpisodeNews(newOrder)
+      // TODO: 调用 API 保存新顺序
+    }
+  }
 
   const fetchEpisode = async () => {
     try {
@@ -404,94 +416,103 @@ export default function EpisodeDetail() {
           </button>
         </div>
 
-        {/* 新闻列表 */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        {/* 新闻列表 - 可拖拽排序 */}
+        <div className="flex-1 overflow-y-auto p-4">
           {episodeNews.length === 0 ? (
             <div className="text-center py-8 text-ink-50">
               暂无新闻，点击上方按钮添加
             </div>
           ) : (
-            <AnimatePresence>
+            <ReactSortable 
+              list={episodeNews}
+              setList={(newList) => setEpisodeNews(newList)}
+              handle=".drag-handle"
+              animation={150}
+              ghostClass="sortable-ghost"
+              dragClass="sortable-drag"
+              onEnd={handleSortEnd}
+              className="space-y-3"
+            >
               {episodeNews.map((en, index) => {
                 const status = statusConfig[en.status] || statusConfig.pending
                 const Icon = status.icon
                 
                 return (
-                  <motion.div
+                  <div 
                     key={en.id}
-                    layout
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: 20, scale: 0.95, transition: { duration: 0.2 } }}
                     className={`p-4 bg-cream-100 rounded-xl border-2 cursor-pointer transition-colors ${
                       selectedNews?.id === en.id ? 'border-accent-coral' : 'border-transparent hover:border-cream-400'
                     }`}
                     onClick={() => setSelectedNews(en)}
                   >
-                  <div className="flex items-start gap-3">
-                    <div className={`p-2 rounded-lg ${status.bgColor}`}>
-                      <Icon className={`w-4 h-4 ${status.textColor}`} />
+                    <div className="flex items-start gap-3">
+                      {/* 拖拽手柄 */}
+                      <div className="drag-handle cursor-grab active:cursor-grabbing p-1 text-ink-50 hover:text-ink-300">
+                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M8 6h2v2H8V6zm6 0h2v2h-2V6zM8 11h2v2H8v-2zm6 0h2v2h-2v-2zm-6 5h2v2H8v-2zm6 0h2v2h-2v-2z"/>
+                        </svg>
+                      </div>
+                      
+                      <div className={`p-2 rounded-lg ${status.bgColor}`}>
+                        <Icon className={`w-4 h-4 ${status.textColor}`} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-medium text-sm text-ink-300 truncate">
+                          {en.news?.title || `新闻 #${en.news_id}`}
+                        </h4>
+                        <p className="text-xs text-ink-50 mt-1">
+                          {status.label}
+                        </p>
+                      </div>
+                      <span className="text-xs text-ink-50">{index + 1}</span>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <h4 className="font-medium text-sm text-ink-300 truncate">
-                        {en.news?.title || `新闻 #${en.news_id}`}
-                      </h4>
-                      <p className="text-xs text-ink-50 mt-1">
-                        {status.label}
-                      </p>
-                    </div>
-                    <span className="text-xs text-ink-50">{index + 1}</span>
-                  </div>
-                  
-                  {/* 快捷操作按钮 */}
-                  <div className="flex gap-2 mt-3">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); generateScript(en.news_id) }}
-                      disabled={generating || en.status === 'generating'}
-                      className="flex-1 text-xs px-2 py-1 bg-accent-coral text-white rounded-lg hover:bg-accent-coral/80 disabled:opacity-50"
-                    >
-                      {en.script ? '重新生成' : '生成脚本'}
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); generateAudio(en.id) }}
-                      disabled={generating || !en.script || en.status === 'audio_done'}
-                      className="flex-1 text-xs px-2 py-1 bg-accent-sage text-white rounded-lg hover:bg-accent-sage/80 disabled:opacity-50"
-                    >
-                      {en.audio_url ? '重新生成' : '生成音频'}
-                    </button>
                     
-                    {/* 删除/确认按钮组 - 防止误触 */}
-                    {deleteMode === en.id ? (
-                      <>
-                        {/* ✓ 确认 - 在左边 */}
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleDeleteNews(en) }}
-                          className="text-xs px-2 py-1 bg-accent-coral text-white rounded-lg hover:bg-accent-coral/90"
-                        >
-                          ✓
-                        </button>
-                        {/* ✕ 取消 - 在右边，需要右移取消 */}
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setDeleteMode(null) }}
-                          className="text-xs px-2 py-1 bg-cream-300 text-ink-300 rounded-lg hover:bg-cream-400"
-                        >
-                          ✕
-                        </button>
-                      </>
-                    ) : (
-                      /* 垃圾桶图标 */
+                    {/* 快捷操作按钮 */}
+                    <div className="flex gap-2 mt-3 ml-7">
                       <button
-                        onClick={(e) => { e.stopPropagation(); setDeleteMode(en.id) }}
-                        className="text-xs px-2 py-1 bg-accent-coral/20 text-accent-coral rounded-lg hover:bg-accent-coral/40"
+                        onClick={(e) => { e.stopPropagation(); generateScript(en.news_id) }}
+                        disabled={generating || en.status === 'generating'}
+                        className="flex-1 text-xs px-2 py-1 bg-accent-coral text-white rounded-lg hover:bg-accent-coral/80 disabled:opacity-50"
                       >
-                        <Trash2 className="w-3 h-3" />
+                        {en.script ? '重新生成' : '生成脚本'}
                       </button>
-                    )}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); generateAudio(en.id) }}
+                        disabled={generating || !en.script || en.status === 'audio_done'}
+                        className="flex-1 text-xs px-2 py-1 bg-accent-sage text-white rounded-lg hover:bg-accent-sage/80 disabled:opacity-50"
+                      >
+                        {en.audio_url ? '重新生成' : '生成音频'}
+                      </button>
+                      
+                      {/* 删除/确认按钮组 */}
+                      {deleteMode === en.id ? (
+                        <>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleDeleteNews(en) }}
+                            className="text-xs px-2 py-1 bg-accent-coral text-white rounded-lg hover:bg-accent-coral/90"
+                          >
+                            ✓
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setDeleteMode(null) }}
+                            className="text-xs px-2 py-1 bg-cream-300 text-ink-300 rounded-lg hover:bg-cream-400"
+                          >
+                            ✕
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setDeleteMode(en.id) }}
+                          className="text-xs px-2 py-1 bg-accent-coral/20 text-accent-coral rounded-lg hover:bg-accent-coral/40"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </motion.div>
-              )
-            })}
-            </AnimatePresence>
+                )
+              })}
+            </ReactSortable>
           )}
         </div>
       </div>
@@ -831,5 +852,110 @@ export default function EpisodeDetail() {
         )}
       </AnimatePresence>
     </div>
+  )
+}
+
+// 可排序的新闻项组件
+function SortableNewsItem({ en, index, status, Icon, selectedNews, setSelectedNews, generating, deleteMode, setDeleteMode, generateScript, generateAudio, handleDeleteNews }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: en.id })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition: isDragging ? 'none' : transition,
+    opacity: isDragging ? 0.9 : 1,
+    zIndex: isDragging ? 9999 : 'auto',
+    position: 'relative',
+    boxShadow: isDragging ? '0 10px 25px rgba(0,0,0,0.2)' : 'none',
+  }
+
+  return (
+    <motion.div
+      ref={setNodeRef}
+      style={style}
+      initial={{ opacity: 0, x: -20 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: 20, scale: 0.95, transition: { duration: 0.2 } }}
+      className={`p-4 bg-cream-100 rounded-xl border-2 cursor-pointer transition-colors touch-manipulation ${
+        selectedNews?.id === en.id ? 'border-accent-coral' : 'border-transparent hover:border-cream-400'
+      }`}
+      onClick={() => !isDragging && setSelectedNews(en)}
+      {...attributes}
+      {...listeners}
+    >
+      <div className="flex items-start gap-3">
+        {/* 拖拽手柄 */}
+        <div className="cursor-grab active:cursor-grabbing p-1 text-ink-50 hover:text-ink-300">
+          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M8 6h2v2H8V6zm6 0h2v2h-2V6zM8 11h2v2H8v-2zm6 0h2v2h-2v-2zm-6 5h2v2H8v-2zm6 0h2v2h-2v-2z"/>
+          </svg>
+        </div>
+        
+        <div className={`p-2 rounded-lg ${status.bgColor}`}>
+          <Icon className={`w-4 h-4 ${status.textColor}`} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <h4 className="font-medium text-sm text-ink-300 truncate">
+            {en.news?.title || `新闻 #${en.news_id}`}
+          </h4>
+          <p className="text-xs text-ink-50 mt-1">
+            {status.label}
+          </p>
+        </div>
+        <span className="text-xs text-ink-50">{index + 1}</span>
+      </div>
+      
+      {/* 快捷操作按钮 */}
+      <div className="flex gap-2 mt-3 ml-7">
+        <button
+          onClick={(e) => { e.stopPropagation(); generateScript(en.news_id) }}
+          disabled={generating || en.status === 'generating'}
+          className="flex-1 text-xs px-2 py-1 bg-accent-coral text-white rounded-lg hover:bg-accent-coral/80 disabled:opacity-50"
+        >
+          {en.script ? '重新生成' : '生成脚本'}
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); generateAudio(en.id) }}
+          disabled={generating || !en.script || en.status === 'audio_done'}
+          className="flex-1 text-xs px-2 py-1 bg-accent-sage text-white rounded-lg hover:bg-accent-sage/80 disabled:opacity-50"
+        >
+          {en.audio_url ? '重新生成' : '生成音频'}
+        </button>
+        
+        {/* 删除/确认按钮组 - 防止误触 */}
+        {deleteMode === en.id ? (
+          <>
+            {/* ✓ 确认删除 - 在左边，需要左移确认 */}
+            <button
+              onClick={(e) => { e.stopPropagation(); handleDeleteNews(en) }}
+              className="text-xs px-2 py-1 bg-red-500 text-white rounded-lg hover:bg-red-600"
+            >
+              ✓
+            </button>
+            {/* ✕ 取消 - 在右边，需要右移取消 */}
+            <button
+              onClick={(e) => { e.stopPropagation(); setDeleteMode(null) }}
+              className="text-xs px-2 py-1 bg-cream-300 text-ink-300 rounded-lg hover:bg-cream-400"
+            >
+              ✕
+            </button>
+          </>
+        ) : (
+          /* 垃圾桶图标 */
+          <button
+            onClick={(e) => { e.stopPropagation(); setDeleteMode(en.id) }}
+            className="text-xs px-2 py-1 bg-accent-coral/20 text-accent-coral rounded-lg hover:bg-accent-coral/40"
+          >
+            <Trash2 className="w-3 h-3" />
+          </button>
+        )}
+      </div>
+    </motion.div>
   )
 }
