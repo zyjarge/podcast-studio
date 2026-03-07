@@ -612,7 +612,7 @@ export default function EpisodeDetail() {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-cream-100 rounded-2xl w-full max-w-6xl h-[85vh] shadow-2xl flex overflow-hidden"
+              className="bg-cream-100 rounded-2xl w-full max-w-[1600px] h-[85vh] shadow-2xl flex overflow-hidden"
             >
               {/* 左侧：新闻列表区域 */}
               <div className="flex-1 flex flex-col border-r border-cream-300 min-w-0">
@@ -686,35 +686,35 @@ export default function EpisodeDetail() {
                       <p>暂无匹配的新闻</p>
                     </div>
                   ) : (
-                    <div className="space-y-2">
+                    <div className="grid grid-cols-3 gap-2">
                       {filteredAvailableNews.map((news) => (
                         <motion.div
                           key={news.id}
                           whileHover={{ scale: 1.01 }}
                           whileTap={{ scale: 0.99 }}
-                          className={`p-3 bg-white rounded-xl border-2 cursor-pointer transition-all ${
+                          className={`p-2 bg-white rounded-xl border-2 cursor-pointer transition-all ${
                             selectedNewsIds.includes(news.id) 
                               ? 'border-accent-coral bg-accent-coral/5' 
                               : 'border-cream-200 hover:border-cream-400'
                           }`}
                           onClick={() => toggleNewsSelection(news.id)}
                         >
-                          <div className="flex items-start gap-3">
-                            <div className={`w-5 h-5 rounded border-2 flex-shrink-0 flex items-center justify-center ${
+                          <div className="flex items-start gap-2">
+                            <div className={`w-4 h-4 rounded border-2 flex-shrink-0 flex items-center justify-center ${
                               selectedNewsIds.includes(news.id) 
                                 ? 'border-accent-coral bg-accent-coral' 
                                 : 'border-cream-400'
                             }`}>
                               {selectedNewsIds.includes(news.id) && (
-                                <CheckCircle2 className="w-3 h-3 text-white" />
+                                <CheckCircle2 className="w-2.5 h-2.5 text-white" />
                               )}
                             </div>
                             <div className="flex-1 min-w-0 overflow-hidden">
-                              <h4 className="font-medium text-sm text-ink-300 line-clamp-2">{news.title}</h4>
-                              <div className="flex items-center gap-2 mt-1.5 text-xs text-ink-50">
-                                <span className="bg-cream-100 px-2 py-0.5 rounded">{news.source?.slice(0,6) || '未知'}</span>
-                                <span className={news.score >= 60 ? 'text-accent-gold font-medium' : ''}>{Math.round(news.score || 0)}⭐</span>
-                                <span>{new Date(news.created_at).toLocaleDateString('zh-CN')}</span>
+                              <h4 className="font-medium text-xs text-ink-300 line-clamp-2 leading-tight">{news.title}</h4>
+                              <div className="flex items-center gap-1.5 mt-1 text-xs text-ink-50">
+                                <span className="bg-cream-100 px-1.5 py-0.5 rounded text-[10px]">{news.source?.slice(0,4) || '未知'}</span>
+                                <span className={news.score >= 60 ? 'text-accent-gold font-medium text-[10px]' : 'text-[10px]'}>{Math.round(news.score || 0)}⭐</span>
+                                <span className="text-[10px]">{new Date(news.created_at).toLocaleDateString('zh-CN', {month:'numeric', day:'numeric'})}</span>
                               </div>
                             </div>
                           </div>
