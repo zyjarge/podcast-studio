@@ -411,20 +411,23 @@ export default function EpisodeDetail() {
               暂无新闻，点击上方按钮添加
             </div>
           ) : (
-            episodeNews.map((en, index) => {
-              const status = statusConfig[en.status] || statusConfig.pending
-              const Icon = status.icon
-              
-              return (
-                <motion.div
-                  key={en.id}
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  className={`p-4 bg-cream-100 rounded-xl border-2 cursor-pointer transition-colors ${
-                    selectedNews?.id === en.id ? 'border-accent-coral' : 'border-transparent hover:border-cream-400'
-                  }`}
-                  onClick={() => setSelectedNews(en)}
-                >
+            <AnimatePresence>
+              {episodeNews.map((en, index) => {
+                const status = statusConfig[en.status] || statusConfig.pending
+                const Icon = status.icon
+                
+                return (
+                  <motion.div
+                    key={en.id}
+                    layout
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: 20, scale: 0.95, transition: { duration: 0.2 } }}
+                    className={`p-4 bg-cream-100 rounded-xl border-2 cursor-pointer transition-colors ${
+                      selectedNews?.id === en.id ? 'border-accent-coral' : 'border-transparent hover:border-cream-400'
+                    }`}
+                    onClick={() => setSelectedNews(en)}
+                  >
                   <div className="flex items-start gap-3">
                     <div className={`p-2 rounded-lg ${status.bgColor}`}>
                       <Icon className={`w-4 h-4 ${status.textColor}`} />
@@ -487,7 +490,8 @@ export default function EpisodeDetail() {
                   </div>
                 </motion.div>
               )
-            })
+            })}
+            </AnimatePresence>
           )}
         </div>
       </div>
@@ -774,32 +778,38 @@ export default function EpisodeDetail() {
                       <p>点击左侧新闻添加</p>
                     </div>
                   ) : (
-                    selectedStats.items.map((news, idx) => (
-                      <div
-                        key={news.id}
-                        className="p-3 bg-white rounded-lg border border-cream-200"
-                      >
-                        <div className="flex items-start gap-2">
-                          <span className="w-5 h-5 flex-shrink-0 flex items-center justify-center bg-accent-coral text-white text-xs rounded-full">
-                            {idx + 1}
-                          </span>
-                          <div className="flex-1 min-w-0">
-                            <h4 className="text-xs font-medium text-ink-300 line-clamp-2">{news.title}</h4>
-                            <div className="flex items-center justify-between mt-1">
-                              <span className="text-xs text-ink-50">
-                                {news.summary?.length || news.title?.length || 0} 字
-                              </span>
-                              <button
-                                onClick={() => removeFromCart(news.id)}
-                                className="text-xs text-red-400 hover:text-red-500"
-                              >
-                                ✕
-                              </button>
+                    <AnimatePresence>
+                      {selectedStats.items.map((news, idx) => (
+                        <motion.div
+                          key={news.id}
+                          layout
+                          initial={{ opacity: 0, scale: 0.9 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.15 } }}
+                          className="p-3 bg-white rounded-lg border border-cream-200"
+                        >
+                          <div className="flex items-start gap-2">
+                            <span className="w-5 h-5 flex-shrink-0 flex items-center justify-center bg-accent-coral text-white text-xs rounded-full">
+                              {idx + 1}
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              <h4 className="text-xs font-medium text-ink-300 line-clamp-2">{news.title}</h4>
+                              <div className="flex items-center justify-between mt-1">
+                                <span className="text-xs text-ink-50">
+                                  {news.summary?.length || news.title?.length || 0} 字
+                                </span>
+                                <button
+                                  onClick={() => removeFromCart(news.id)}
+                                  className="text-xs text-red-400 hover:text-red-500"
+                                >
+                                  ✕
+                                </button>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </div>
-                    ))
+                        </motion.div>
+                      ))}
+                    </AnimatePresence>
                   )}
                 </div>
 
