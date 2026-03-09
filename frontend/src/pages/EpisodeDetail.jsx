@@ -264,14 +264,23 @@ export default function EpisodeDetail() {
   // 删除新闻
   const handleDeleteNews = async (episodeNews) => {
     try {
-      await episodesApi.softDelete(parseInt(id), episodeNews.news_id)
-      // 从列表中移除
-      setEpisodeNews(prev => prev.filter(en => en.id !== episodeNews.id))
-      // 如果删除的是当前选中的，清空选择
-      if (selectedNews?.id === episodeNews.id) {
-        setSelectedNews(null)
+      // 先设置删除中状态，触发动画
+      const element = document.getElementById(`news-item-${episodeNews.id}`)
+      if (element) {
+        element.style.transition = 'all 0.2s ease-out'
+        element.style.opacity = '0'
+        element.style.transform = 'translateX(-20px) scale(0.95)'
       }
-      setDeleteMode(null)
+      
+      // 延迟删除，等待动画完成
+      setTimeout(async () => {
+        await episodesApi.softDelete(parseInt(id), episodeNews.news_id)
+        setEpisodeNews(prev => prev.filter(en => en.id !== episodeNews.id))
+        if (selectedNews?.id === episodeNews.id) {
+          setSelectedNews(null)
+        }
+        setDeleteMode(null)
+      }, 200)
     } catch (err) {
       console.error('删除失败:', err)
       alert('删除失败')
@@ -405,14 +414,34 @@ export default function EpisodeDetail() {
           </div>
         </div>
 
-        {/* 添加新闻按钮 */}
-        <div className="p-4 border-b border-cream-300">
+        {/* 操作按钮组 */}
+        <div className="p-3 border-b border-cream-300 flex items-center justify-center gap-4">
           <button
             onClick={() => setShowAddNews(true)}
-            className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-accent-coral text-cream-100 rounded-xl font-medium hover:bg-accent-coral/90 transition-colors"
+            className="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-cream-200 transition-colors group"
+            title="添加新闻"
           >
-            <Plus className="w-5 h-5" />
-            添加新闻
+            <div className="w-10 h-10 rounded-full bg-accent-coral/20 flex items-center justify-center group-hover:bg-accent-coral/30 transition-colors">
+              <Plus className="w-5 h-5 text-accent-coral" />
+            </div>
+          </button>
+          
+          <button
+            className="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-cream-200 transition-colors group"
+            title="生成逐字稿"
+          >
+            <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center group-hover:bg-purple-200 transition-colors">
+              <Zap className="w-5 h-5 text-purple-500" />
+            </div>
+          </button>
+          
+          <button
+            className="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-cream-200 transition-colors group"
+            title="生成音频"
+          >
+            <div className="w-10 h-10 rounded-full bg-accent-sage/20 flex items-center justify-center group-hover:bg-accent-sage/30 transition-colors">
+              <Volume2 className="w-5 h-5 text-accent-sage" />
+            </div>
           </button>
         </div>
 
@@ -440,6 +469,7 @@ export default function EpisodeDetail() {
                 return (
                   <div 
                     key={en.id}
+                    id={`news-item-${en.id}`}
                     className={`p-4 bg-cream-100 rounded-xl border-2 cursor-pointer transition-colors ${
                       selectedNews?.id === en.id ? 'border-accent-coral' : 'border-transparent hover:border-cream-400'
                     }`}
@@ -453,8 +483,11 @@ export default function EpisodeDetail() {
                         </svg>
                       </div>
                       
-                      <div className={`p-2 rounded-lg ${status.bgColor}`}>
-                        <Icon className={`w-4 h-4 ${status.textColor}`} />
+                      {/* 序号 */}
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
+                        status.bgColor
+                      } ${status.textColor}`}>
+                        {index + 1}
                       </div>
                       <div className="flex-1 min-w-0">
                         <h4 className="font-medium text-sm text-ink-300 truncate">
@@ -464,7 +497,6 @@ export default function EpisodeDetail() {
                           {status.label}
                         </p>
                       </div>
-                      <span className="text-xs text-ink-50">{index + 1}</span>
                     </div>
                     
                     {/* 快捷操作按钮 */}
@@ -712,7 +744,9 @@ export default function EpisodeDetail() {
                     </div>
                   ) : (
                     <div className="grid grid-cols-3 gap-2">
-                      {filteredAvailableNews.map((news) => (
+                      {filteredAvailableNews.map((news, idx) => {
+                        const selectedIndex = selectedNewsIds.indexOf(news.id) + 1
+                        return (
                         <motion.div
                           key={news.id}
                           whileHover={{ scale: 1.01 }}
@@ -725,14 +759,12 @@ export default function EpisodeDetail() {
                           onClick={() => toggleNewsSelection(news.id)}
                         >
                           <div className="flex items-start gap-2">
-                            <div className={`w-4 h-4 rounded border-2 flex-shrink-0 flex items-center justify-center ${
+                            <div className={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-sm font-bold ${
                               selectedNewsIds.includes(news.id) 
-                                ? 'border-accent-coral bg-accent-coral' 
-                                : 'border-cream-400'
+                                ? 'bg-accent-coral text-white' 
+                                : 'bg-cream-300 text-ink-50'
                             }`}>
-                              {selectedNewsIds.includes(news.id) && (
-                                <CheckCircle2 className="w-2.5 h-2.5 text-white" />
-                              )}
+                              {selectedNewsIds.includes(news.id) ? selectedIndex : idx + 1}
                             </div>
                             <div className="flex-1 min-w-0 overflow-hidden">
                               <h4 className="font-medium text-xs text-ink-300 line-clamp-2 leading-tight">{news.title}</h4>
@@ -744,7 +776,7 @@ export default function EpisodeDetail() {
                             </div>
                           </div>
                         </motion.div>
-                      ))}
+                      )})}
                     </div>
                   )}
                 </div>
