@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 from app.core.config import settings
 import httpx
 import logging
@@ -11,6 +12,17 @@ router = APIRouter()
 
 # .env 文件路径
 ENV_FILE = Path(__file__).parent.parent.parent / ".env"
+
+# 提示词配置的 key
+SCRIPT_PROMPT_KEY = "SCRIPT_PROMPT"
+
+
+class ScriptPromptResponse(BaseModel):
+    script_prompt: str
+
+
+class ScriptPromptUpdate(BaseModel):
+    script_prompt: str
 
 
 @router.get("/status")
@@ -129,4 +141,58 @@ async def update_env(key: str, value: str):
         
     except Exception as e:
         logger.error(f"Failed to update .env: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/script-prompt")
+async def get_script_prompt():
+    """获取提示词配置"""
+    prompt = ""
+    
+    if ENV_FILE.exists():
+        with open(ENV_FILE, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line and "=" in line:
+                    key, value = line.split("=", 1)
+                    if key == SCRIPT_PROMPT_KEY:
+                        prompt = value
+                        break
+    
+    return {"script_prompt": prompt}
+
+
+@router.put("/script-prompt")
+async def update_script_prompt(data: ScriptPromptUpdate):
+    """更新提示词配置"""
+    try:
+        # 读取现有 .env 文件
+        env_lines = []
+        if ENV_FILE.exists():
+            with open(ENV_FILE, "r") as f:
+                env_lines = f.readlines()
+        
+        # 查找并更新或添加
+        key_found = False
+        new_lines = []
+        for line in env_lines:
+            if line.strip().startswith(f"{SCRIPT_PROMPT_KEY}="):
+                new_lines.append(f"{SCRIPT_PROMPT_KEY}={data.script_prompt}\n")
+                key_found = True
+            else:
+                new_lines.append(line)
+        
+        if not key_found:
+            new_lines.append(f"{SCRIPT_PROMPT_KEY}={data.script_prompt}\n")
+        
+        # 写回文件
+        with open(ENV_FILE, "w") as f:
+            f.writelines(new_lines)
+        
+        logger.info(f"Updated {SCRIPT_PROMPT_KEY} in .env file")
+        
+        return {"message": "提示词已保存", "script_prompt": data.script_prompt}
+        
+    except Exception as e:
+        logger.error(f"Failed to update script prompt: {e}")
         raise HTTPException(status_code=500, detail=str(e))
