@@ -25,7 +25,8 @@ import {
   Trash2,
   ChevronDown,
   Loader2,
-  ShoppingCart
+  ShoppingCart,
+  StickyNote
 } from 'lucide-react'
 import { episodesApi, newsApi } from '../services/api'
 
@@ -80,6 +81,44 @@ export default function EpisodeDetail() {
   const [showRawContentModal, setShowRawContentModal] = useState(false)
   const [showScriptModal, setShowScriptModal] = useState(false)
 
+  // 预览弹窗状态
+  const [showScriptPreview, setShowScriptPreview] = useState(false)
+  const [showAudioPreview, setShowAudioPreview] = useState(false)
+  const [editingLineIdx, setEditingLineIdx] = useState(null)
+
+  // 备注编辑状态（内联编辑）
+  const [editingNotesId, setEditingNotesId] = useState(null)
+  const [editingNotes, setEditingNotes] = useState('')
+
+  // 系统设置状态
+  const [showSettings, setShowSettings] = useState(false)
+  const [scriptPrompt, setScriptPrompt] = useState('')
+
+  // 音频播放状态
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [audioProgress, setAudioProgress] = useState(0)
+  const audioDuration = 180
+
+  // 模拟逐字稿数据
+  const scriptLines = [
+    { role: 'host', speaker: '主持人', content: '各位听众朋友，大家好！欢迎收听今天的新闻播报。' },
+    { role: 'content', speaker: '内容', content: '今日要闻：苹果公司召开春季发布会，发布了全新iPhone 16系列。' },
+    { role: 'comment', speaker: '评论', content: '这次发布会还是很有看点的，尤其是AI功能的加入让手机更加智能。' },
+    { role: 'host', speaker: '主持人', content: '那第二条新闻呢？' },
+    { role: 'content', speaker: '内容', content: 'Meta宣布开源新一代大语言模型，性能超越GPT-4。' },
+    { role: 'comment', speaker: '评论', content: 'Meta这一招确实厉害，开源策略让整个AI社区都能受益。' },
+    { role: 'host', speaker: '主持人', content: '好了，今天的新闻就是这些，感谢大家的收听！' },
+  ]
+
+  // 音频播放模拟
+  useEffect(() => {
+    let interval
+    if (isPlaying && audioProgress < audioDuration) {
+      interval = setInterval(() => setAudioProgress(p => Math.min(p + 1, audioDuration)), 1000)
+    }
+    return () => clearInterval(interval)
+  }, [isPlaying, audioProgress])
+
   // 生成状态
   const [generating, setGenerating] = useState(false)
   
@@ -114,6 +153,7 @@ export default function EpisodeDetail() {
       // 获取节目详情
       const episodeData = await episodesApi.get(parseInt(id))
       setEpisode(episodeData)
+      setScriptPrompt(episodeData.script_prompt || '')
       
       // 获取节目关联的新闻
       const newsData = await episodesApi.listNews(parseInt(id))
@@ -138,6 +178,15 @@ export default function EpisodeDetail() {
       setEpisode(updated)
     } catch (err) {
       console.error('Failed to update episode:', err)
+    }
+  }
+
+  // 保存提示词
+  const saveScriptPrompt = async () => {
+    try {
+      await episodesApi.update(parseInt(id), { script_prompt: scriptPrompt })
+    } catch (err) {
+      console.error('Failed to save script prompt:', err)
     }
   }
 
@@ -316,6 +365,35 @@ export default function EpisodeDetail() {
     } finally {
       setSavingScript(false)
     }
+  }
+
+  // 打开备注编辑（内联）
+  const openNotesModal = (en, e) => {
+    e?.stopPropagation()
+    setEditingNotesId(en.id)
+    setEditingNotes(en.notes || '')
+  }
+
+  // 保存备注
+  const saveNotes = async () => {
+    try {
+      // 更新本地状态
+      setEpisodeNews(episodeNews.map(en => 
+        en.id === editingNotesId ? { ...en, notes: editingNotes } : en
+      ))
+      if (selectedNews?.id === editingNotesId) {
+        setSelectedNews({ ...selectedNews, notes: editingNotes })
+      }
+      setEditingNotesId(null)
+    } catch (err) {
+      console.error('Failed to save notes:', err)
+    }
+  }
+
+  // 取消编辑备注
+  const cancelNotes = () => {
+    setEditingNotesId(null)
+    setEditingNotes('')
   }
 
   const filteredAvailableNews = availableNews.filter(n => {
@@ -502,18 +580,11 @@ export default function EpisodeDetail() {
                     {/* 快捷操作按钮 */}
                     <div className="flex gap-2 mt-3 ml-7">
                       <button
-                        onClick={(e) => { e.stopPropagation(); generateScript(en.news_id) }}
-                        disabled={generating || en.status === 'generating'}
-                        className="flex-1 text-xs px-2 py-1 bg-accent-coral text-white rounded-lg hover:bg-accent-coral/80 disabled:opacity-50"
+                        onClick={(e) => openNotesModal(en, e)}
+                        className="flex-1 text-xs px-2 py-1 bg-purple-100 text-purple-600 rounded-lg hover:bg-purple-200 flex items-center justify-center gap-1"
                       >
-                        {en.script ? '重新生成' : '生成脚本'}
-                      </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); generateAudio(en.id) }}
-                        disabled={generating || !en.script || en.status === 'audio_done'}
-                        className="flex-1 text-xs px-2 py-1 bg-accent-sage text-white rounded-lg hover:bg-accent-sage/80 disabled:opacity-50"
-                      >
-                        {en.audio_url ? '重新生成' : '生成音频'}
+                        <StickyNote className="w-3 h-3" />
+                        {en.notes ? '查看备注' : '写备注'}
                       </button>
                       
                       {/* 删除/确认按钮组 */}
@@ -541,6 +612,41 @@ export default function EpisodeDetail() {
                         </button>
                       )}
                     </div>
+
+                    {/* 备注显示/编辑 */}
+                    {en.notes && editingNotesId !== en.id ? (
+                      // 有备注且不在编辑状态 → 显示备注内容
+                      <div className="mt-3 ml-7">
+                        <div className="px-3 py-2 bg-purple-50 border border-purple-100 rounded-lg text-xs text-purple-700">
+                          {en.notes}
+                        </div>
+                      </div>
+                    ) : editingNotesId === en.id ? (
+                      // 编辑状态 → 显示输入框
+                      <div className="mt-3 ml-7">
+                        <textarea
+                          value={editingNotes}
+                          onChange={(e) => setEditingNotes(e.target.value)}
+                          placeholder="为这条新闻写备注，例如：从XX角度分析..."
+                          className="w-full h-20 px-3 py-2 bg-white border border-purple-200 rounded-lg text-xs text-ink-300 placeholder:text-ink-50 resize-none focus:outline-none focus:border-purple-400"
+                          autoFocus
+                        />
+                        <div className="flex justify-end gap-2 mt-2">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); cancelNotes() }}
+                            className="text-xs px-3 py-1 text-ink-50 hover:text-ink-300"
+                          >
+                            取消
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); saveNotes() }}
+                            className="text-xs px-3 py-1 bg-purple-500 text-white rounded-lg hover:bg-purple-600"
+                          >
+                            保存
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 )
               })}
@@ -553,6 +659,40 @@ export default function EpisodeDetail() {
       <div className="flex-1 p-8 overflow-y-auto">
         {selectedNews ? (
           <div>
+            {/* 系统设置面板 */}
+            <div className="mb-6 bg-cream-200 rounded-xl overflow-hidden">
+              <button
+                onClick={() => setShowSettings(!showSettings)}
+                className="w-full flex items-center justify-between px-5 py-4 hover:bg-cream-300 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <Settings className="w-5 h-5 text-ink-50" />
+                  <span className="font-medium text-ink-300">系统设置</span>
+                </div>
+                <ChevronDown className={`w-4 h-4 text-ink-50 transition-transform ${showSettings ? 'rotate-180' : ''}`} />
+              </button>
+              
+              {showSettings && (
+                <div className="px-5 pb-5 border-t border-cream-300">
+                  <div className="pt-4">
+                    <label className="block text-sm font-medium text-ink-300 mb-2">
+                      提示词（生成逐字稿时的系统指令）
+                    </label>
+                    <textarea
+                      value={scriptPrompt}
+                      onChange={(e) => setScriptPrompt(e.target.value)}
+                      onBlur={saveScriptPrompt}
+                      placeholder="输入自定义提示词，例如：&#10;- 使用彪悍罗和OK王的人设&#10;- 数字年份必须中文化&#10;- 复杂概念需要类比化解释..."
+                      className="w-full h-40 px-4 py-3 bg-white border border-cream-300 rounded-xl text-sm text-ink-300 placeholder:text-ink-50 resize-none focus:outline-none focus:border-accent-coral"
+                    />
+                    <p className="text-xs text-ink-50 mt-2">
+                      此提示词将作为生成逐字稿时的系统指令
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
             <h2 className="text-2xl font-display font-semibold text-ink-300 mb-2">
               {selectedNews.news?.title || `新闻 #${selectedNews.news_id}`}
             </h2>
@@ -888,7 +1028,7 @@ export default function EpisodeDetail() {
 }
 
 // 可排序的新闻项组件
-function SortableNewsItem({ en, index, status, Icon, selectedNews, setSelectedNews, generating, deleteMode, setDeleteMode, generateScript, generateAudio, handleDeleteNews }) {
+function SortableNewsItem({ en, index, status, Icon, selectedNews, setSelectedNews, generating, deleteMode, setDeleteMode, openNotesModal, handleDeleteNews, editingNotesId, setEditingNotesId, editingNotes, setEditingNotes, saveNotes, cancelNotes }) {
   const {
     attributes,
     listeners,
@@ -946,18 +1086,11 @@ function SortableNewsItem({ en, index, status, Icon, selectedNews, setSelectedNe
       {/* 快捷操作按钮 */}
       <div className="flex gap-2 mt-3 ml-7">
         <button
-          onClick={(e) => { e.stopPropagation(); generateScript(en.news_id) }}
-          disabled={generating || en.status === 'generating'}
-          className="flex-1 text-xs px-2 py-1 bg-accent-coral text-white rounded-lg hover:bg-accent-coral/80 disabled:opacity-50"
+          onClick={(e) => openNotesModal(en, e)}
+          className="flex-1 text-xs px-2 py-1 bg-purple-100 text-purple-600 rounded-lg hover:bg-purple-200 flex items-center justify-center gap-1"
         >
-          {en.script ? '重新生成' : '生成脚本'}
-        </button>
-        <button
-          onClick={(e) => { e.stopPropagation(); generateAudio(en.id) }}
-          disabled={generating || !en.script || en.status === 'audio_done'}
-          className="flex-1 text-xs px-2 py-1 bg-accent-sage text-white rounded-lg hover:bg-accent-sage/80 disabled:opacity-50"
-        >
-          {en.audio_url ? '重新生成' : '生成音频'}
+          <StickyNote className="w-3 h-3" />
+          {en.notes ? '查看备注' : '写备注'}
         </button>
         
         {/* 删除/确认按钮组 - 防止误触 */}
@@ -988,6 +1121,41 @@ function SortableNewsItem({ en, index, status, Icon, selectedNews, setSelectedNe
           </button>
         )}
       </div>
+
+      {/* 备注显示/编辑 */}
+      {en.notes && editingNotesId !== en.id ? (
+        // 有备注且不在编辑状态 → 显示备注内容
+        <div className="mt-3 ml-7">
+          <div className="px-3 py-2 bg-purple-50 border border-purple-100 rounded-lg text-xs text-purple-700">
+            {en.notes}
+          </div>
+        </div>
+      ) : editingNotesId === en.id ? (
+        // 编辑状态 → 显示输入框
+        <div className="mt-3 ml-7">
+          <textarea
+            value={editingNotes}
+            onChange={(e) => setEditingNotes(e.target.value)}
+            placeholder="为这条新闻写备注，例如：从XX角度分析..."
+            className="w-full h-20 px-3 py-2 bg-white border border-purple-200 rounded-lg text-xs text-ink-300 placeholder:text-ink-50 resize-none focus:outline-none focus:border-purple-400"
+            autoFocus
+          />
+          <div className="flex justify-end gap-2 mt-2">
+            <button
+              onClick={(e) => { e.stopPropagation(); cancelNotes() }}
+              className="text-xs px-3 py-1 text-ink-50 hover:text-ink-300"
+            >
+              取消
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); saveNotes() }}
+              className="text-xs px-3 py-1 bg-purple-500 text-white rounded-lg hover:bg-purple-600"
+            >
+              保存
+            </button>
+          </div>
+        </div>
+      ) : null}
     </motion.div>
   )
 }

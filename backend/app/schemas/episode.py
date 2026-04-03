@@ -13,6 +13,8 @@ class EpisodeBase(BaseModel):
     title: str
     intro_template: str = ""
     outro_template: str = ""
+    script_prompt: str = ""  # 生成逐字稿的自定义提示词
+    scheduled_date: datetime | None = None  # 预计播出日期
 
 
 class EpisodeCreate(EpisodeBase):
@@ -24,6 +26,8 @@ class EpisodeUpdate(BaseModel):
     status: EpisodeStatus | None = None
     intro_template: str | None = None
     outro_template: str | None = None
+    script_prompt: str | None = None  # 生成逐字稿的自定义提示词
+    scheduled_date: datetime | None = None  # 预计播出日期
 
 
 class EpisodeResponse(EpisodeBase):

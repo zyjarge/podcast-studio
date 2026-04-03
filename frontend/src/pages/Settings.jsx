@@ -22,6 +22,7 @@ import {
   RefreshCw,
   Eye,
   EyeOff,
+  MessageSquare,
 } from 'lucide-react'
 import { sourcesApi, newsApi, rssParserApi, settingsApi } from '../services/api'
 
@@ -32,6 +33,7 @@ const tabs = [
   { id: 'api', label: 'API 配置', icon: Key },
   { id: 'schedule', label: '定时任务', icon: Clock },
   { id: 'notifications', label: '通知设置', icon: Bell },
+  { id: 'prompt', label: '提示词配置', icon: MessageSquare },
 ]
 
 const voiceSettings = [
@@ -74,6 +76,9 @@ export default function Settings() {
   const [editingRss, setEditingRss] = useState(null)
   const [error, setError] = useState(null)
 
+  // 提示词配置状态
+  const [scriptPrompt, setScriptPrompt] = useState('')
+
   // RSS 表单状态
   const [rssForm, setRssForm] = useState({ name: '', url: '', enabled: true, auto_mode: false })
   const [parsing, setParsing] = useState(false)
@@ -88,8 +93,20 @@ export default function Settings() {
     } else if (activeTab === 'api') {
       fetchApiStatus()
       loadApiKeys()
+    } else if (activeTab === 'prompt') {
+      fetchScriptPrompt()
     }
   }, [activeTab])
+
+  // 获取提示词配置
+  const fetchScriptPrompt = async () => {
+    try {
+      const data = await settingsApi.getScriptPrompt()
+      setScriptPrompt(data.script_prompt || '')
+    } catch (err) {
+      console.error('Failed to fetch script prompt:', err)
+    }
+  }
 
   const fetchRssSources = async () => {
     try {
@@ -529,8 +546,102 @@ export default function Settings() {
             </motion.div>
           )}
 
+          {/* 提示词配置 */}
+          {activeTab === 'prompt' && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-6"
+            >
+              <div>
+                <h2 className="font-display text-lg font-semibold text-ink-300 mb-1">提示词配置</h2>
+                <p className="text-sm text-ink-50 mb-6">配置生成播客逐字稿时的系统提示词</p>
+              </div>
+
+              {/* 提示词编辑器 */}
+              <div className="bg-cream-100 rounded-2xl p-6 border border-cream-300">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="font-medium text-ink-300">系统提示词</h3>
+                    <p className="text-xs text-ink-50 mt-1">定义生成逐字稿时的角色、规则和风格要求</p>
+                  </div>
+                </div>
+
+                <textarea
+                  value={scriptPrompt}
+                  onChange={(e) => setScriptPrompt(e.target.value)}
+                  placeholder={`在此输入提示词，例如：
+
+【角色设定】
+- 彪悍罗：犀利、直接、痛批行业乱象
+- OK王：友好、好奇、轻松串场
+
+【TTS适配】
+- 数字年份必须中文化（如：2026年 → 二〇二六年）
+- 极致口语化，避免书面语
+
+【结构规则】
+- 禁止生成标题打断对话流
+- 通过自然过渡句串联新闻
+
+【备注执行】
+- 100%执行用户提供的备注要求
+- 从指定角度进行评论`}
+                  className="w-full h-80 px-4 py-3 bg-white border border-cream-300 rounded-xl text-sm text-ink-300 placeholder:text-ink-50 resize-none focus:outline-none focus:border-accent-coral font-mono"
+                />
+
+                <div className="flex items-center justify-between mt-4">
+                  <p className="text-xs text-ink-50">
+                    提示词将应用于所有节目的逐字稿生成
+                  </p>
+                  <button
+                    onClick={async () => {
+                      try {
+                        await settingsApi.updateScriptPrompt(scriptPrompt)
+                        setSaved(true)
+                        setTimeout(() => setSaved(false), 2000)
+                      } catch (err) {
+                        console.error('Failed to save prompt:', err)
+                        setError('保存失败')
+                      }
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 bg-accent-coral text-cream-100 rounded-xl font-medium hover:bg-accent-coral/90 transition-colors"
+                  >
+                    {saved ? <CheckCircle2 className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+                    {saved ? '已保存' : '保存提示词'}
+                  </button>
+                </div>
+              </div>
+
+              {/* 预设模板 */}
+              <div className="bg-cream-100 rounded-2xl p-6 border border-cream-300">
+                <h3 className="font-medium text-ink-300 mb-4">预设模板</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { name: '科技新闻', desc: '适合科技类播客' },
+                    { name: '每日简报', desc: '简短精炼的新闻播报' },
+                    { name: '深度评论', desc: '详细分析和评论' },
+                    { name: '轻松闲聊', desc: '轻松幽默的风格' },
+                  ].map((template) => (
+                    <button
+                      key={template.name}
+                      onClick={() => {
+                        // TODO: 加载预设模板
+                        console.log('Load template:', template.name)
+                      }}
+                      className="p-4 bg-cream-200 rounded-xl text-left hover:bg-cream-300 transition-colors"
+                    >
+                      <div className="font-medium text-ink-300">{template.name}</div>
+                      <div className="text-xs text-ink-50 mt-1">{template.desc}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </motion.div>
+          )}
+
           {/* 其他 Tab 占位 */}
-          {activeTab !== 'rss' && activeTab !== 'api' && (
+          {activeTab !== 'rss' && activeTab !== 'api' && activeTab !== 'prompt' && (
             <div className="text-center py-12 text-ink-50">
               该功能正在开发中...
             </div>

@@ -58,6 +58,11 @@ export const settingsApi = {
   updateEnv: (key, value) => request(`/settings/update-env?key=${key}&value=${value}`, {
     method: 'POST'
   }),
+  getScriptPrompt: () => request('/settings/script-prompt'),
+  updateScriptPrompt: (prompt) => request('/settings/script-prompt', {
+    method: 'PUT',
+    body: { script_prompt: prompt }
+  }),
 }
 
 // News API

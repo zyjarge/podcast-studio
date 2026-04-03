@@ -20,7 +20,8 @@ function App() {
       <Sidebar currentMode={currentMode} setCurrentMode={setCurrentMode} />
       <main className="flex-1 ml-64">
         <Routes>
-          <Route path="/" element={<EpisodeList />} />
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/episodes" element={<EpisodeList />} />
           <Route path="/episode/:id" element={<EpisodeDetail currentMode={currentMode} />} />
           <Route path="/news-pool" element={<NewsPool />} />
           <Route path="/scripts" element={<ScriptEditor />} />
