@@ -471,15 +471,34 @@ export default function EpisodeDetail() {
             返回列表
           </button>
           
-          <input
-            type="text"
-            value={episode.title}
-            onChange={(e) => setEpisode({ ...episode, title: e.target.value })}
-            onBlur={() => updateEpisode({ title: episode.title })}
-            className="w-full text-xl font-display font-semibold bg-transparent border-none focus:outline-none text-ink-300"
-          />
+          <div className="flex items-center gap-4 mb-2">
+            <input
+              type="date"
+              value={episode.scheduled_date ? (() => {
+                const d = new Date(episode.scheduled_date)
+                const year = d.getFullYear()
+                const month = String(d.getMonth() + 1).padStart(2, '0')
+                const day = String(d.getDate()).padStart(2, '0')
+                return `${year}-${month}-${day}`
+              })() : ''}
+              onChange={(e) => {
+                const [year, month, day] = e.target.value.split('-')
+                const localDate = new Date(Number(year), Number(month) - 1, Number(day), 12, 0, 0)
+                setEpisode({ ...episode, scheduled_date: localDate.toISOString() })
+              }}
+              onBlur={() => updateEpisode({ scheduled_date: episode.scheduled_date })}
+              className="px-3 py-1.5 bg-cream-200 border border-cream-400 rounded-lg text-sm text-ink-300 focus:outline-none focus:border-accent-coral cursor-pointer"
+            />
+            <input
+              type="text"
+              value={episode.title}
+              onChange={(e) => setEpisode({ ...episode, title: e.target.value })}
+              onBlur={() => updateEpisode({ title: episode.title })}
+              className="flex-1 text-xl font-display font-semibold bg-transparent border-none focus:outline-none text-ink-300"
+            />
+          </div>
           
-          <div className="flex items-center gap-4 mt-3">
+          <div className="flex items-center gap-4 mt-1">
             <span className="text-sm text-ink-50">
               {totalNews} 条新闻 · {completedNews} 完成
             </span>
