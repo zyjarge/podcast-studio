@@ -18,7 +18,8 @@ class RSSItem:
     """单条 RSS 新闻"""
     title: str
     url: str
-    summary: str
+    summary: str  # 截断版本
+    content: str  # 完整版本
     published_at: Optional[str] = None
 
 
@@ -86,14 +87,15 @@ class RSSService:
 
                 title = title_el.text.strip() if title_el is not None and title_el.text else ""
                 url = url_el.text.strip() if url_el is not None and url_el.text else ""
-                summary = summary_el.text.strip() if summary_el is not None and summary_el.text else ""
+                raw_description = summary_el.text.strip() if summary_el is not None and summary_el.text else ""
                 published_at = pubdate_el.text.strip() if pubdate_el is not None and pubdate_el.text else None
 
                 if title and url:
                     items.append(RSSItem(
                         title=title,
                         url=url,
-                        summary=self._clean_summary(summary),
+                        summary=self._clean_summary(raw_description),  # 截断版本
+                        content=self._clean_content(raw_description),  # 完整版本
                         published_at=published_at
                     ))
 
@@ -103,7 +105,7 @@ class RSSService:
         return items
 
     def _clean_summary(self, summary: str) -> str:
-        """清理摘要文本（去除 HTML 标签）"""
+        """清理摘要文本（去除 HTML 标签，返回截断版本）"""
         import re
         # 移除 HTML 标签
         text = re.sub(r'<[^>]+>', '', summary)
@@ -112,6 +114,15 @@ class RSSService:
         # 截取前 200 字
         if len(text) > 200:
             text = text[:200] + "..."
+        return text
+
+    def _clean_content(self, content: str) -> str:
+        """清理正文文本（去除 HTML 标签，不截断）"""
+        import re
+        # 移除 HTML 标签
+        text = re.sub(r'<[^>]+>', '', content)
+        # 移除多余空白
+        text = re.sub(r'\s+', ' ', text).strip()
         return text
 
     async def close(self):

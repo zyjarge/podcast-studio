@@ -19,7 +19,9 @@ import {
   AlertCircle,
   Star,
   ArrowUpDown,
-  Filter
+  Filter,
+  Eye,
+  Calendar
 } from 'lucide-react'
 import { sourcesApi, newsApi, episodesApi } from '../services/api'
 
@@ -63,6 +65,10 @@ export default function NewsPool() {
   // 排序和筛选状态
   const [sortBy, setSortBy] = useState('date_score') // date_score, score, created_at
   const [minScore, setMinScore] = useState(0) // 最低评分筛选
+
+  // 新闻详情弹窗状态
+  const [showNewsModal, setShowNewsModal] = useState(false)
+  const [selectedNewsDetail, setSelectedNewsDetail] = useState(null)
 
   useEffect(() => {
     fetchData()
@@ -151,6 +157,13 @@ export default function NewsPool() {
     } else {
       setSelectedNews([...selectedNews, newsId])
     }
+  }
+
+  // 查看新闻详情（不选中）
+  const viewNewsDetail = (news, e) => {
+    e?.stopPropagation()
+    setSelectedNewsDetail(news)
+    setShowNewsModal(true)
   }
 
   const filteredNewsBySource = (() => {
@@ -372,41 +385,60 @@ export default function NewsPool() {
                       key={news.id}
                       initial={{ opacity: 0, y: 20 }}
                       animate={{ opacity: 1, y: 0 }}
-                      className={`bg-cream-100 rounded-xl p-4 border-2 cursor-pointer transition-colors ${
+                      className={`bg-cream-100 rounded-xl p-4 border-2 transition-colors ${
                         isSelected 
                           ? 'border-accent-coral bg-accent-coral/5' 
                           : 'border-transparent hover:border-cream-400'
                       }`}
-                      onClick={() => toggleNewsSelection(news.id)}
                     >
                       <div className="flex items-start gap-3">
-                        <div className={`mt-0.5 ${
-                          isSelected ? 'text-accent-coral' : 'text-ink-50'
-                        }`}>
+                        {/* 选择框 */}
+                        <div 
+                          className={`mt-0.5 cursor-pointer ${
+                            isSelected ? 'text-accent-coral' : 'text-ink-50'
+                          }`}
+                          onClick={() => toggleNewsSelection(news.id)}
+                        >
                           {isSelected ? (
                             <CheckCircle2 className="w-5 h-5" />
                           ) : (
                             <Circle className="w-5 h-5" />
                           )}
                         </div>
+                        
                         <div className="flex-1 min-w-0">
-                          {/* 评分展示 */}
+                          {/* 评分和查看按钮行 */}
                           <div className="flex items-center justify-between mb-2">
                             <StarRating score={news.score || 0} size="md" />
-                            <span className="text-sm font-medium text-accent-gold">
-                              {Math.round(news.score || 0)}
-                            </span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium text-accent-gold">
+                                {Math.round(news.score || 0)}
+                              </span>
+                              {/* 查看全文按钮 */}
+                              <button
+                                onClick={(e) => viewNewsDetail(news, e)}
+                                className="p-1 hover:bg-cream-200 rounded text-ink-50 hover:text-ink-300"
+                                title="查看全文"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+                            </div>
                           </div>
                           
-                          <h3 className="font-medium text-sm text-ink-300 line-clamp-2 mb-2">
+                          {/* 标题 - 显示更多行 */}
+                          <h3 className="font-medium text-sm text-ink-300 line-clamp-3 mb-2">
                             {news.title}
                           </h3>
-                          {news.summary && (
-                            <p className="text-xs text-ink-50 line-clamp-2 mb-2">
-                              {news.summary}
+                          
+                          {/* 摘要 - 显示完整内容 */}
+                          {(news.summary || news.content) && (
+                            <p className="text-xs text-ink-50 line-clamp-5 mb-2">
+                              {(news.content || news.summary)}
                             </p>
                           )}
-                          <div className="flex items-center justify-between">
+                          
+                          {/* 关键词和日期 */}
+                          <div className="flex items-center justify-between mt-auto">
                             <div className="flex items-center gap-2 flex-wrap">
                               {news.keywords && news.keywords.slice(0, 3).map((keyword, i) => (
                                 <span 
@@ -417,9 +449,10 @@ export default function NewsPool() {
                                 </span>
                               ))}
                             </div>
-                            <span className="text-xs text-ink-50">
+                            <div className="flex items-center gap-1 text-xs text-ink-50">
+                              <Calendar className="w-3 h-3" />
                               {new Date(news.created_at).toLocaleDateString('zh-CN')}
-                            </span>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -431,6 +464,144 @@ export default function NewsPool() {
           ))
         )}
       </div>
+
+      {/* 新闻详情弹窗 */}
+      <AnimatePresence>
+        {showNewsModal && selectedNewsDetail && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-ink-900/50 flex items-center justify-center z-50 p-4"
+            onClick={() => setShowNewsModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-cream-100 rounded-3xl w-full max-w-3xl max-h-[85vh] overflow-hidden shadow-2xl flex flex-col"
+            >
+              {/* 头部 */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-cream-300 bg-cream-200">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-accent-coral/20 flex items-center justify-center">
+                    <FileText className="w-5 h-5 text-accent-coral" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-ink-300">新闻详情</h3>
+                    <p className="text-xs text-ink-50">{selectedNewsDetail.source}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <a
+                    href={selectedNewsDetail.url || '#'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-2 hover:bg-cream-300 rounded-xl text-ink-50 hover:text-ink-300 transition-colors"
+                    title="打开原文"
+                  >
+                    <ExternalLink className="w-5 h-5" />
+                  </a>
+                  <button
+                    onClick={() => setShowNewsModal(false)}
+                    className="p-2 hover:bg-cream-300 rounded-xl transition-colors"
+                  >
+                    <X className="w-5 h-5 text-ink-50" />
+                  </button>
+                </div>
+              </div>
+
+              {/* 内容 */}
+              <div className="flex-1 overflow-y-auto p-6">
+                {/* 标题 */}
+                <h2 className="font-display text-xl font-semibold text-ink-300 mb-4">
+                  {selectedNewsDetail.title}
+                </h2>
+
+                {/* 元信息 */}
+                <div className="flex items-center gap-4 mb-6 text-sm text-ink-50">
+                  <div className="flex items-center gap-1">
+                    <Calendar className="w-4 h-4" />
+                    {new Date(selectedNewsDetail.created_at).toLocaleString('zh-CN')}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Star className="w-4 h-4 text-accent-gold fill-accent-gold" />
+                    {Math.round(selectedNewsDetail.score || 0)} 分
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {selectedNewsDetail.keywords?.map((kw, i) => (
+                      <span key={i} className="px-2 py-0.5 bg-cream-200 rounded text-xs">
+                        {kw}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 摘要 */}
+                {selectedNewsDetail.summary && (
+                  <div className="mb-6 p-4 bg-accent-coral/5 border border-accent-coral/20 rounded-xl">
+                    <p className="text-sm font-medium text-accent-coral mb-1">摘要</p>
+                    <p className="text-sm text-ink-300">{selectedNewsDetail.summary}</p>
+                  </div>
+                )}
+
+                {/* 正文（完整版本） */}
+                {selectedNewsDetail.content ? (
+                  <div className="prose prose-sm max-w-none">
+                    <p className="text-sm text-ink-300 whitespace-pre-wrap leading-relaxed">
+                      {selectedNewsDetail.content}
+                    </p>
+                  </div>
+                ) : selectedNewsDetail.description ? (
+                  <div className="prose prose-sm max-w-none">
+                    <p className="text-sm text-ink-300 whitespace-pre-wrap leading-relaxed">
+                      {selectedNewsDetail.description}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-ink-50 italic">暂无正文内容</p>
+                )}
+              </div>
+
+              {/* 底部操作 */}
+              <div className="flex items-center justify-between px-6 py-4 border-t border-cream-300 bg-cream-200">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-ink-50">
+                    正文 {selectedNewsDetail.content?.length || 0} 字 | 摘要 {selectedNewsDetail.summary?.length || 0} 字
+                  </span>
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => {
+                      const isSelected = selectedNews.includes(selectedNewsDetail.id)
+                      if (isSelected) {
+                        setSelectedNews(selectedNews.filter(id => id !== selectedNewsDetail.id))
+                      } else {
+                        setSelectedNews([...selectedNews, selectedNewsDetail.id])
+                      }
+                      setShowNewsModal(false)
+                    }}
+                    className={`px-4 py-2 rounded-xl font-medium transition-colors ${
+                      selectedNews.includes(selectedNewsDetail.id)
+                        ? 'bg-accent-coral text-white'
+                        : 'bg-cream-300 text-ink-300 hover:bg-cream-400'
+                    }`}
+                  >
+                    {selectedNews.includes(selectedNewsDetail.id) ? '已选中 ✓' : '添加到选择'}
+                  </button>
+                  <button
+                    onClick={() => setShowNewsModal(false)}
+                    className="px-4 py-2 bg-accent-coral text-white rounded-xl font-medium hover:bg-accent-coral/90 transition-colors"
+                  >
+                    关闭
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* 添加到节目弹窗 */}
       <AnimatePresence>

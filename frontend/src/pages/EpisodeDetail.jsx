@@ -13,7 +13,6 @@ import {
   Play,
   Sparkles,
   RefreshCw,
-  Settings,
   X,
   Send,
   Zap,
@@ -90,10 +89,6 @@ export default function EpisodeDetail() {
   const [editingNotesId, setEditingNotesId] = useState(null)
   const [editingNotes, setEditingNotes] = useState('')
 
-  // 系统设置状态
-  const [showSettings, setShowSettings] = useState(false)
-  const [scriptPrompt, setScriptPrompt] = useState('')
-
   // 音频播放状态
   const [isPlaying, setIsPlaying] = useState(false)
   const [audioProgress, setAudioProgress] = useState(0)
@@ -153,7 +148,6 @@ export default function EpisodeDetail() {
       // 获取节目详情
       const episodeData = await episodesApi.get(parseInt(id))
       setEpisode(episodeData)
-      setScriptPrompt(episodeData.script_prompt || '')
       
       // 获取节目关联的新闻
       const newsData = await episodesApi.listNews(parseInt(id))
@@ -181,14 +175,6 @@ export default function EpisodeDetail() {
     }
   }
 
-  // 保存提示词
-  const saveScriptPrompt = async () => {
-    try {
-      await episodesApi.update(parseInt(id), { script_prompt: scriptPrompt })
-    } catch (err) {
-      console.error('Failed to save script prompt:', err)
-    }
-  }
 
   // 统计
   const totalNews = episodeNews.length
@@ -678,133 +664,78 @@ export default function EpisodeDetail() {
       <div className="flex-1 p-8 overflow-y-auto">
         {selectedNews ? (
           <div>
-            {/* 系统设置面板 */}
-            <div className="mb-6 bg-cream-200 rounded-xl overflow-hidden">
-              <button
-                onClick={() => setShowSettings(!showSettings)}
-                className="w-full flex items-center justify-between px-5 py-4 hover:bg-cream-300 transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <Settings className="w-5 h-5 text-ink-50" />
-                  <span className="font-medium text-ink-300">系统设置</span>
+            {/* 新闻正文和备注 - 7:3 布局 */}
+            <div className="flex gap-4 mb-6">
+              {/* 左侧 7: 新闻正文 */}
+              <div className="flex-1 bg-cream-200 rounded-xl p-5">
+                <h3 className="font-medium text-ink-300 mb-3">新闻正文</h3>
+                <pre className="text-sm text-ink-50 whitespace-pre-wrap leading-relaxed" style={{maxHeight: "none", overflow: "visible"}}>
+                  {selectedNews.news?.content || selectedNews.news?.summary || '暂无正文'}
+                </pre>
+              </div>
+
+              {/* 右侧 3: 备注 */}
+              <div className="w-72 bg-cream-200 rounded-xl p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-medium text-ink-300">备注</h3>
+                  {!editingNotesId ? (
+                    <button
+                      onClick={() => {
+                        setEditingNotesId(selectedNews.id)
+                        setEditingNotes(selectedNews.notes || '')
+                      }}
+                      className="text-xs text-accent-coral hover:text-accent-coral/80"
+                    >
+                      {selectedNews.notes ? '编辑' : '添加备注'}
+                    </button>
+                  ) : null}
                 </div>
-                <ChevronDown className={`w-4 h-4 text-ink-50 transition-transform ${showSettings ? 'rotate-180' : ''}`} />
-              </button>
-              
-              {showSettings && (
-                <div className="px-5 pb-5 border-t border-cream-300">
-                  <div className="pt-4">
-                    <label className="block text-sm font-medium text-ink-300 mb-2">
-                      提示词（生成逐字稿时的系统指令）
-                    </label>
+                
+                {editingNotesId === selectedNews.id ? (
+                  <div>
                     <textarea
-                      value={scriptPrompt}
-                      onChange={(e) => setScriptPrompt(e.target.value)}
-                      onBlur={saveScriptPrompt}
-                      placeholder="输入自定义提示词，例如：&#10;- 使用彪悍罗和OK王的人设&#10;- 数字年份必须中文化&#10;- 复杂概念需要类比化解释..."
-                      className="w-full h-40 px-4 py-3 bg-white border border-cream-300 rounded-xl text-sm text-ink-300 placeholder:text-ink-50 resize-none focus:outline-none focus:border-accent-coral"
+                      value={editingNotes}
+                      onChange={(e) => setEditingNotes(e.target.value)}
+                      placeholder="为这条新闻写备注，例如：从XX角度分析..."
+                      className="w-full h-48 px-3 py-2 bg-white border border-purple-200 rounded-lg text-sm text-ink-300 placeholder:text-ink-50 resize-none focus:outline-none focus:border-purple-400"
+                      autoFocus
                     />
-                    <p className="text-xs text-ink-50 mt-2">
-                      此提示词将作为生成逐字稿时的系统指令
-                    </p>
+                    <div className="flex justify-end gap-2 mt-2">
+                      <button
+                        onClick={() => {
+                          setEditingNotesId(null)
+                          setEditingNotes('')
+                        }}
+                        className="text-xs px-2 py-1 text-ink-50 hover:text-ink-300"
+                      >
+                        取消
+                      </button>
+                      <button
+                        onClick={() => {
+                          setEpisodeNews(episodeNews.map(en => 
+                            en.id === editingNotesId ? { ...en, notes: editingNotes } : en
+                          ))
+                          setSelectedNews({ ...selectedNews, notes: editingNotes })
+                          setEditingNotesId(null)
+                        }}
+                        className="text-xs px-2 py-1 bg-purple-500 text-white rounded-lg hover:bg-purple-600"
+                      >
+                        保存
+                      </button>
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
-
-            <h2 className="text-2xl font-display font-semibold text-ink-300 mb-2">
-              {selectedNews.news?.title || `新闻 #${selectedNews.news_id}`}
-            </h2>
-            
-            <p className="text-sm text-ink-50 mb-6">
-              来源：{selectedNews.news?.source || '-'}
-            </p>
-
-            {/* 新闻摘要 */}
-            <div className="bg-cream-200 rounded-xl p-6 mb-6">
-              <h3 className="font-medium text-ink-300 mb-3">新闻摘要</h3>
-              <p className="text-sm text-ink-50 whitespace-pre-wrap">
-                {selectedNews.news?.summary || '暂无摘要'}
-              </p>
-              
-              {selectedNews.news?.content && (
-                <>
-                  <h3 className="font-medium text-ink-300 mt-6 mb-3">新闻正文</h3>
-                  <pre className="text-sm text-ink-50 whitespace-pre-wrap max-h-64 overflow-y-auto">
-                    {selectedNews.news.content}
-                  </pre>
-                </>
-              )}
-            </div>
-            
-            {/* 操作按钮 -->
-            <div className="flex gap-3 mb-6">
-              <button
-                onClick={() => generateScript(selectedNews.news_id)}
-                disabled={generating}
-                className="flex items-center gap-2 px-4 py-2 bg-accent-coral text-cream-100 rounded-xl font-medium hover:bg-accent-coral/90 disabled:opacity-50"
-              >
-                <FileText className="w-4 h-4" />
-                生成脚本
-              </button>
-              <button
-                onClick={() => generateAudio(selectedNews.id)}
-                disabled={generating || selectedNews.status !== 'script_done'}
-                className="flex items-center gap-2 px-4 py-2 bg-accent-sage text-white rounded-xl font-medium hover:bg-accent-sage/90 disabled:opacity-50"
-              >
-                <Volume2 className="w-4 h-4" />
-                生成音频
-              </button>
-            </div>
-
-            {/* 脚本区域 */}
-            <div className="bg-cream-100 rounded-xl p-6">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="font-medium text-ink-300">逐字稿</h3>
-                {!editingScript ? (
-                  <button
-                    onClick={startEditScript}
-                    className="flex items-center gap-1 text-sm text-accent-coral hover:text-accent-coral/80"
-                  >
-                    <Edit3 className="w-4 h-4" />
-                    编辑
-                  </button>
+                ) : selectedNews.notes ? (
+                  <p className="text-sm text-purple-700 whitespace-pre-wrap">
+                    {selectedNews.notes}
+                  </p>
                 ) : (
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={cancelEditScript}
-                      className="flex items-center gap-1 text-sm text-ink-50 hover:text-ink-300"
-                    >
-                      取消
-                    </button>
-                    <button
-                      onClick={saveScript}
-                      disabled={savingScript}
-                      className="flex items-center gap-1 text-sm text-accent-sage hover:text-accent-sage/80 disabled:opacity-50"
-                    >
-                      {savingScript ? '保存中...' : '保存'}
-                    </button>
-                  </div>
+                  <p className="text-sm text-ink-50 italic">
+                    点击"添加备注"为这条新闻添加备注
+                  </p>
                 )}
               </div>
-              
-              {editingScript ? (
-                <textarea
-                  value={editedScript}
-                  onChange={(e) => setEditedScript(e.target.value)}
-                  className="w-full h-96 p-4 bg-cream-200 border border-cream-300 rounded-xl text-sm text-ink-300 focus:outline-none focus:border-accent-coral resize-none"
-                  placeholder="在此编辑逐字稿..."
-                />
-              ) : selectedNews.script ? (
-                <pre className="whitespace-pre-wrap text-sm text-ink-50 max-h-96 overflow-y-auto">
-                  {selectedNews.script}
-                </pre>
-              ) : (
-                <div className="text-center py-8 text-ink-50">
-                  暂无逐字稿，请先点击"生成脚本"按钮
-                </div>
-              )}
             </div>
+
           </div>
         ) : (
           <div className="flex items-center justify-center h-full text-ink-50">

@@ -140,7 +140,7 @@ async def fetch_news(source_id: int | None = None, db: Session = Depends(get_db)
                         url=item_url,
                         summary=item.summary if hasattr(item, 'summary') else item.get('summary', ''),
                         keywords=[],
-                        content=item.summary if hasattr(item, 'summary') else item.get('summary', ''),
+                        content=item.content if hasattr(item, 'content') else item.get('content', ''),
                         rss_source_id=source.id
                     )
                     

@@ -23,6 +23,7 @@ import {
   Eye,
   EyeOff,
   MessageSquare,
+  Copy,
 } from 'lucide-react'
 import { sourcesApi, newsApi, rssParserApi, settingsApi } from '../services/api'
 
@@ -263,6 +264,18 @@ export default function Settings() {
     setShowRssModal(true)
   }
 
+  // 复制 RSS 源
+  const copyRssSource = (source) => {
+    setEditingRss(null) // 新增模式
+    setRssForm({
+      name: source.name + ' (副本)',
+      url: source.url,
+      enabled: source.enabled,
+      auto_mode: source.auto_mode
+    })
+    setShowRssModal(true)
+  }
+
   // 从 RSS URL 解析标题
   const parseRssTitle = async () => {
     if (!rssForm.url) return
@@ -434,6 +447,15 @@ export default function Settings() {
                             }`}
                           >
                             ☑自动
+                          </button>
+
+                          {/* 复制 */}
+                          <button
+                            onClick={() => copyRssSource(source)}
+                            className="p-2 hover:bg-cream-200 rounded-xl text-ink-50 hover:text-ink-300"
+                            title="复制"
+                          >
+                            <Copy className="w-4 h-4" />
                           </button>
 
                           {/* 编辑 */}
