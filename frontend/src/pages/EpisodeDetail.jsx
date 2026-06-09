@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ReactSortable } from 'react-sortablejs'
@@ -27,7 +27,7 @@ import {
   ShoppingCart,
   StickyNote
 } from 'lucide-react'
-import { episodesApi, newsApi } from '../services/api'
+import { episodesApi, newsApi, AUDIO_BASE } from '../services/api'
 
 const statusConfig = {
   pending: { label: '待处理', bgColor: 'bg-cream-300', textColor: 'text-ink-300', icon: Circle },
@@ -79,6 +79,19 @@ export default function EpisodeDetail() {
   const [showPromptModal, setShowPromptModal] = useState(false)
   const [showRawContentModal, setShowRawContentModal] = useState(false)
   const [showScriptModal, setShowScriptModal] = useState(false)
+
+  // 生成整期逐字稿 modal 状态
+  const [showGenerateEpisodeModal, setShowGenerateEpisodeModal] = useState(false)
+  const [episodeNotes, setEpisodeNotes] = useState('')
+  const [generatingEpisodeScript, setGeneratingEpisodeScript] = useState(false)
+  const [generatedEpisodeScript, setGeneratedEpisodeScript] = useState('')
+  const [editingEpisodeScript, setEditingEpisodeScript] = useState(false)
+  const [editedEpisodeScript, setEditedEpisodeScript] = useState('')
+  const [savingEpisodeScript, setSavingEpisodeScript] = useState(false)
+
+  // 音频生成状态
+  const [generatingAudio, setGeneratingAudio] = useState(false)
+  const [ttsProgress, setTtsProgress] = useState(null)  // {stage, total, completed, message, percent, audio_url, error}
 
   // 预览弹窗状态
   const [showScriptPreview, setShowScriptPreview] = useState(false)
@@ -363,13 +376,20 @@ export default function EpisodeDetail() {
   // 保存备注
   const saveNotes = async () => {
     try {
-      // 更新本地状态
-      setEpisodeNews(episodeNews.map(en => 
+      // Update local state
+      setEpisodeNews(episodeNews.map(en =>
         en.id === editingNotesId ? { ...en, notes: editingNotes } : en
       ))
       if (selectedNews?.id === editingNotesId) {
         setSelectedNews({ ...selectedNews, notes: editingNotes })
       }
+
+      // Persist to backend
+      const targetEn = episodeNews.find(en => en.id === editingNotesId)
+      if (targetEn) {
+        await episodesApi.updateNotes(parseInt(id), targetEn.news_id, editingNotes)
+      }
+
       setEditingNotesId(null)
     } catch (err) {
       console.error('Failed to save notes:', err)
@@ -381,6 +401,138 @@ export default function EpisodeDetail() {
     setEditingNotesId(null)
     setEditingNotes('')
   }
+
+  // 生成整期逐字稿
+  const handleGenerateEpisodeScript = async () => {
+    try {
+      setGeneratingEpisodeScript(true)
+      setGeneratedEpisodeScript('')
+      setEditingEpisodeScript(false)
+      setEditedEpisodeScript('')
+
+      const result = await episodesApi.generateEpisodeScript(parseInt(id), episodeNotes)
+      setGeneratedEpisodeScript(result.script)
+
+      // Update episode in local state
+      setEpisode({ ...episode, script: result.script })
+    } catch (err) {
+      console.error('Failed to generate episode script:', err)
+      alert('生成逐字稿失败: ' + (err.message || '未知错误'))
+    } finally {
+      setGeneratingEpisodeScript(false)
+    }
+  }
+
+  // 打开生成逐字稿 modal
+  const openGenerateEpisodeModal = () => {
+    setEpisodeNotes(episode?.script_prompt || '')
+    setGeneratedEpisodeScript(episode?.script || '')
+    setEditingEpisodeScript(false)
+    setEditedEpisodeScript('')
+    setTtsProgress(null)
+    setShowGenerateEpisodeModal(true)
+  }
+
+  // 开始编辑逐字稿
+  const startEditEpisodeScript = () => {
+    setEditedEpisodeScript(generatedEpisodeScript)
+    setEditingEpisodeScript(true)
+  }
+
+  // 取消编辑逐字稿
+  const cancelEditEpisodeScript = () => {
+    setEditingEpisodeScript(false)
+    setEditedEpisodeScript('')
+  }
+
+  // 保存编辑后的逐字稿
+  const saveEditedEpisodeScript = async () => {
+    try {
+      setSavingEpisodeScript(true)
+      await episodesApi.update(parseInt(id), { script: editedEpisodeScript })
+      setGeneratedEpisodeScript(editedEpisodeScript)
+      setEpisode({ ...episode, script: editedEpisodeScript })
+      setEditingEpisodeScript(false)
+    } catch (err) {
+      console.error('Failed to save episode script:', err)
+      alert('保存失败: ' + (err.message || '未知错误'))
+    } finally {
+      setSavingEpisodeScript(false)
+    }
+  }
+
+  // 生成整期音频
+  const handleGenerateEpisodeAudio = async () => {
+    try {
+      setGeneratingAudio(true)
+      setTtsProgress({ stage: 'starting', message: '启动中...', percent: 0 })
+
+      try {
+        await episodesApi.generateEpisodeAudio(parseInt(id))
+      } catch (err) {
+        // 409 means already in progress - just start polling
+        if (err.status === 409) {
+          console.log('Audio generation already in progress, polling...')
+        } else {
+          throw err
+        }
+      }
+
+      // Start polling
+      const interval = setInterval(async () => {
+        try {
+          const progress = await episodesApi.getAudioProgress(parseInt(id))
+          setTtsProgress(progress)
+
+          if (progress.stage === 'done' || progress.stage === 'error') {
+            clearInterval(interval)
+            setGeneratingAudio(false)
+
+            if (progress.stage === 'done') {
+              setEpisode(prev => ({ ...prev, audio_url: progress.audio_url }))
+            }
+          }
+        } catch (err) {
+          console.error('Failed to poll audio progress:', err)
+        }
+      }, 2000)
+    } catch (err) {
+      console.error('Failed to start audio generation:', err)
+      alert('启动音频生成失败: ' + (err.message || '未知错误'))
+      setGeneratingAudio(false)
+    }
+  }
+
+  // 轮询音频生成进度（用于 modal 重新打开时）
+  const pollAudioProgress = useCallback(() => {
+    const interval = setInterval(async () => {
+      try {
+        const progress = await episodesApi.getAudioProgress(parseInt(id))
+        setTtsProgress(progress)
+
+        if (progress.stage === 'done' || progress.stage === 'error') {
+          clearInterval(interval)
+          setGeneratingAudio(false)
+
+          if (progress.stage === 'done') {
+            setEpisode(prev => ({ ...prev, audio_url: progress.audio_url }))
+          }
+        }
+      } catch (err) {
+        console.error('Failed to poll audio progress:', err)
+      }
+    }, 2000)
+
+    return () => clearInterval(interval)
+  }, [id])
+
+  // 当 modal 打开且正在生成音频时，启动轮询
+  useEffect(() => {
+    if (showGenerateEpisodeModal && generatingAudio) {
+      const cleanup = pollAudioProgress()
+      return cleanup
+    }
+  }, [showGenerateEpisodeModal, generatingAudio, pollAudioProgress])
 
   const filteredAvailableNews = availableNews.filter(n => {
     // Tab 来源筛选
@@ -510,6 +662,7 @@ export default function EpisodeDetail() {
           </button>
           
           <button
+            onClick={openGenerateEpisodeModal}
             className="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-cream-200 transition-colors group"
             title="生成逐字稿"
           >
@@ -519,6 +672,16 @@ export default function EpisodeDetail() {
           </button>
           
           <button
+            onClick={() => {
+              if (episode?.script) {
+                setShowGenerateEpisodeModal(true)
+                setGeneratedEpisodeScript(episode.script)
+                // Auto-start audio generation
+                setTimeout(() => handleGenerateEpisodeAudio(), 100)
+              } else {
+                alert('请先生成逐字稿')
+              }
+            }}
             className="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-cream-200 transition-colors group"
             title="生成音频"
           >
@@ -661,24 +824,24 @@ export default function EpisodeDetail() {
       </div>
 
       {/* 右侧：新闻精编 */}
-      <div className="flex-1 p-8 overflow-y-auto">
+      <div className="flex-1 p-4 overflow-hidden">
         {selectedNews ? (
           <div>
-            {/* 新闻正文和备注 - 7:3 布局 */}
-            <div className="flex gap-4 mb-6">
-              {/* 左侧 7: 新闻正文 */}
-              <div className="flex-1 bg-cream-200 rounded-xl p-5">
-                <h3 className="font-medium text-ink-300 mb-3">新闻正文</h3>
-                <pre className="text-sm text-ink-50 whitespace-pre-wrap leading-relaxed" style={{maxHeight: "none", overflow: "visible"}}>
+            {/* 新闻正文和备注 - 左右布局 */}
+            <div className="flex gap-3 h-full">
+              {/* 左侧：新闻正文 */}
+              <div className="flex-1 flex flex-col bg-cream-200 rounded-xl p-4 overflow-hidden">
+                <h3 className="font-medium text-ink-300 mb-2 shrink-0">新闻正文</h3>
+                <div className="flex-1 overflow-y-auto text-sm text-ink-50 leading-relaxed">
                   {selectedNews.news?.content || selectedNews.news?.summary || '暂无正文'}
-                </pre>
+                </div>
               </div>
 
-              {/* 右侧 3: 备注 */}
-              <div className="w-72 bg-cream-200 rounded-xl p-5">
-                <div className="flex items-center justify-between mb-3">
+              {/* 右侧：备注 */}
+              <div className="w-64 shrink-0 bg-cream-200 rounded-xl p-4 flex flex-col">
+                <div className="flex items-center justify-between mb-2 shrink-0">
                   <h3 className="font-medium text-ink-300">备注</h3>
-                  {!editingNotesId ? (
+                  {!editingNotesId && (
                     <button
                       onClick={() => {
                         setEditingNotesId(selectedNews.id)
@@ -688,51 +851,40 @@ export default function EpisodeDetail() {
                     >
                       {selectedNews.notes ? '编辑' : '添加备注'}
                     </button>
-                  ) : null}
+                  )}
                 </div>
                 
-                {editingNotesId === selectedNews.id ? (
-                  <div>
-                    <textarea
-                      value={editingNotes}
-                      onChange={(e) => setEditingNotes(e.target.value)}
-                      placeholder="为这条新闻写备注，例如：从XX角度分析..."
-                      className="w-full h-48 px-3 py-2 bg-white border border-purple-200 rounded-lg text-sm text-ink-300 placeholder:text-ink-50 resize-none focus:outline-none focus:border-purple-400"
-                      autoFocus
-                    />
-                    <div className="flex justify-end gap-2 mt-2">
-                      <button
-                        onClick={() => {
-                          setEditingNotesId(null)
-                          setEditingNotes('')
-                        }}
-                        className="text-xs px-2 py-1 text-ink-50 hover:text-ink-300"
-                      >
-                        取消
-                      </button>
-                      <button
-                        onClick={() => {
-                          setEpisodeNews(episodeNews.map(en => 
-                            en.id === editingNotesId ? { ...en, notes: editingNotes } : en
-                          ))
-                          setSelectedNews({ ...selectedNews, notes: editingNotes })
-                          setEditingNotesId(null)
-                        }}
-                        className="text-xs px-2 py-1 bg-purple-500 text-white rounded-lg hover:bg-purple-600"
-                      >
-                        保存
-                      </button>
+                <div className="flex-1 overflow-y-auto">
+                  {editingNotesId === selectedNews.id ? (
+                    <div className="flex flex-col h-full">
+                      <textarea
+                        value={editingNotes}
+                        onChange={(e) => setEditingNotes(e.target.value)}
+                        placeholder="为这条新闻写备注..."
+                        className="flex-1 w-full px-3 py-2 bg-white border border-purple-200 rounded-lg text-sm text-ink-300 placeholder:text-ink-50 resize-none focus:outline-none focus:border-purple-400"
+                        autoFocus
+                      />
+                      <div className="flex justify-end gap-2 mt-2 shrink-0">
+                        <button
+                          onClick={() => { setEditingNotesId(null); setEditingNotes('') }}
+                          className="text-xs px-3 py-1 text-ink-50 hover:text-ink-300"
+                        >
+                          取消
+                        </button>
+                        <button
+                          onClick={saveNotes}
+                          className="text-xs px-3 py-1 bg-purple-500 text-white rounded-lg hover:bg-purple-600"
+                        >
+                          保存
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ) : selectedNews.notes ? (
-                  <p className="text-sm text-purple-700 whitespace-pre-wrap">
-                    {selectedNews.notes}
-                  </p>
-                ) : (
-                  <p className="text-sm text-ink-50 italic">
-                    点击"添加备注"为这条新闻添加备注
-                  </p>
-                )}
+                  ) : selectedNews.notes ? (
+                    <p className="text-sm text-purple-700 whitespace-pre-wrap">{selectedNews.notes}</p>
+                  ) : (
+                    <p className="text-sm text-ink-50 italic">点击"添加备注"为这条新闻添加备注</p>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -966,6 +1118,319 @@ export default function EpisodeDetail() {
                     {selectedStats.count > 0 
                       ? `+ 添加到节目 (${selectedStats.count})` 
                       : '请选择新闻'}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 生成整期逐字稿 Modal */}
+      <AnimatePresence>
+        {showGenerateEpisodeModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-ink-900/60 flex items-center justify-center z-50 p-4"
+            onClick={() => !generatingEpisodeScript && setShowGenerateEpisodeModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-cream-100 rounded-2xl w-full max-w-5xl max-h-[85vh] shadow-2xl flex flex-col overflow-hidden"
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-cream-300 bg-cream-200 shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center">
+                    <Zap className="w-5 h-5 text-purple-500" />
+                  </div>
+                  <div>
+                    <h2 className="font-display text-lg font-semibold text-ink-300">生成整期逐字稿</h2>
+                    <p className="text-sm text-ink-50">基于 {episodeNews.length} 条新闻生成对谈脚本</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => !generatingEpisodeScript && setShowGenerateEpisodeModal(false)}
+                  className="p-2 hover:bg-cream-300 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5 text-ink-50" />
+                </button>
+              </div>
+
+              {/* Body - Left/Right layout */}
+              <div className="flex-1 flex overflow-hidden">
+                {/* Left: News + Notes */}
+                <div className="w-[380px] shrink-0 border-r border-cream-300 flex flex-col overflow-hidden">
+                  {/* News list */}
+                  <div className="flex-1 overflow-y-auto p-5">
+                    <h3 className="text-sm font-medium text-ink-300 mb-3 sticky top-0 bg-cream-100 pb-2">📰 本期新闻 ({episodeNews.length} 条)</h3>
+                    <div className="space-y-2">
+                      {episodeNews.map((en, idx) => (
+                        <div key={en.id} className="flex items-start gap-2 text-sm">
+                          <span className="w-6 h-6 rounded-full bg-cream-300 flex items-center justify-center text-xs text-ink-50 shrink-0 mt-0.5">
+                            {idx + 1}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-ink-300 truncate">{en.news?.title || `新闻 #${en.news_id}`}</p>
+                            {en.notes && (
+                              <p className="text-xs text-purple-500 mt-0.5 truncate">📝 {en.notes}</p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Episode notes */}
+                  <div className="shrink-0 p-5 border-t border-cream-300">
+                    <h3 className="text-sm font-medium text-ink-300 mb-2">📝 节目备注</h3>
+                    <textarea
+                      value={episodeNotes}
+                      onChange={(e) => setEpisodeNotes(e.target.value)}
+                      placeholder="例如：今天是高考日，增加对考生的祝福..."
+                      className="w-full h-24 px-3 py-2 bg-white border border-cream-300 rounded-xl text-sm text-ink-300 placeholder:text-ink-50 resize-none focus:outline-none focus:border-purple-400 transition-colors"
+                      disabled={generatingEpisodeScript}
+                    />
+                  </div>
+                </div>
+
+                {/* Right: Script preview / editor */}
+                <div className="flex-1 flex flex-col overflow-hidden">
+                  {generatedEpisodeScript ? (
+                    <>
+                      <div className="flex items-center justify-between px-5 py-3 border-b border-cream-300 shrink-0">
+                        <h3 className="text-sm font-medium text-ink-300">📄 逐字稿{editingEpisodeScript ? '编辑' : '预览'}</h3>
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs text-ink-50">
+                            {editingEpisodeScript ? editedEpisodeScript.length : generatedEpisodeScript.length} 字
+                          </span>
+                          {editingEpisodeScript ? (
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={cancelEditEpisodeScript}
+                                className="text-xs px-3 py-1 text-ink-50 hover:text-ink-300 transition-colors"
+                              >
+                                取消
+                              </button>
+                              <button
+                                onClick={saveEditedEpisodeScript}
+                                disabled={savingEpisodeScript}
+                                className="text-xs px-3 py-1 bg-purple-500 text-white rounded-lg hover:bg-purple-600 disabled:opacity-50 transition-colors"
+                              >
+                                {savingEpisodeScript ? '保存中...' : '保存'}
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={startEditEpisodeScript}
+                                className="text-xs px-3 py-1 text-purple-500 hover:text-purple-700 transition-colors"
+                              >
+                                <Edit3 className="w-3 h-3 inline mr-1" />
+                                编辑
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  const result = await episodesApi.injectTestScript(parseInt(id))
+                                  setGeneratedEpisodeScript(result.script)
+                                  setEpisode({ ...episode, script: result.script })
+                                }}
+                                className="text-xs px-3 py-1 text-accent-coral hover:text-accent-coral/80 transition-colors"
+                                title="注入极简测试脚本（仅2段对话）"
+                              >
+                                测试脚本
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex-1 overflow-y-auto">
+                        {editingEpisodeScript ? (
+                          <textarea
+                            value={editedEpisodeScript}
+                            onChange={(e) => setEditedEpisodeScript(e.target.value)}
+                            className="w-full h-full p-5 text-sm text-ink-300 leading-relaxed resize-none focus:outline-none bg-white font-sans"
+                            autoFocus
+                          />
+                        ) : (
+                          <div className="p-5">
+                            <pre className="text-sm text-ink-300 whitespace-pre-wrap font-sans leading-relaxed">
+                              {generatedEpisodeScript}
+                            </pre>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex-1 flex items-center justify-center text-ink-50">
+                      <div className="text-center">
+                        <FileText className="w-12 h-12 mx-auto mb-3 text-cream-400" />
+                        <p className="text-sm">点击"生成逐字稿"后在此预览</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Audio generation progress */}
+              {ttsProgress && ttsProgress.stage !== 'idle' && (
+                <div className="px-6 py-3 border-t border-cream-300 bg-cream-100 shrink-0">
+                  <div className="flex items-center gap-3 mb-2">
+                    <Volume2 className={`w-4 h-4 ${ttsProgress.stage === 'done' ? 'text-accent-sage' : ttsProgress.stage === 'error' ? 'text-accent-coral' : 'text-accent-sky animate-pulse'}`} />
+                    <span className="text-sm text-ink-300 flex-1">{ttsProgress.message}</span>
+                    {ttsProgress.percent > 0 && (
+                      <span className="text-xs text-ink-50">{ttsProgress.percent}%</span>
+                    )}
+                  </div>
+                  {ttsProgress.total > 0 && ttsProgress.stage !== 'done' && ttsProgress.stage !== 'error' && (
+                    <div className="h-2 bg-cream-300 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-accent-sky rounded-full transition-all duration-300"
+                        style={{ width: `${ttsProgress.percent}%` }}
+                      />
+                    </div>
+                  )}
+                  {ttsProgress.stage === 'done' && (
+                    <div className="mt-3 p-3 bg-accent-sage/10 rounded-xl border border-accent-sage/30">
+                      <div className="flex items-center gap-2 mb-2">
+                        <CheckCircle2 className="w-4 h-4 text-accent-sage" />
+                        <span className="text-sm text-accent-sage font-medium">音频生成完成!</span>
+                      </div>
+                      <audio
+                        controls
+                        className="w-full h-10"
+                        src={`${AUDIO_BASE}/audio/${id}/episode_${id}.mp3`}
+                      />
+                      <div className="flex items-center justify-between mt-2">
+                        <p className="text-xs text-ink-50">音频路径: {ttsProgress.audio_url}</p>
+                        <button
+                          onClick={async () => {
+                            if (confirm('确定要删除已生成的音频吗？')) {
+                              try {
+                                await episodesApi.deleteAudio(parseInt(id))
+                                setEpisode({ ...episode, audio_url: '' })
+                                setTtsProgress(null)
+                              } catch (err) {
+                                alert('删除失败: ' + err.message)
+                              }
+                            }
+                          }}
+                          className="text-xs px-2 py-1 text-accent-coral hover:text-accent-coral/80 transition-colors"
+                        >
+                          <Trash2 className="w-3 h-3 inline mr-1" />
+                          删除音频
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {ttsProgress.stage === 'error' && (
+                    <p className="text-xs text-accent-coral mt-1">❌ {ttsProgress.error}</p>
+                  )}
+                </div>
+              )}
+
+              {/* Persisted audio player (loaded from database) */}
+              {!ttsProgress && episode?.audio_url && (
+                <div className="px-6 py-3 border-t border-cream-300 bg-cream-100 shrink-0">
+                  <div className="flex items-center gap-2 mb-2">
+                    <CheckCircle2 className="w-4 h-4 text-accent-sage" />
+                    <span className="text-sm text-accent-sage font-medium">已有音频</span>
+                  </div>
+                  <audio
+                    controls
+                    className="w-full h-10"
+                    src={`${AUDIO_BASE}/audio/${id}/episode_${id}.mp3`}
+                  />
+                  <div className="flex items-center justify-between mt-2">
+                    <p className="text-xs text-ink-50">音频路径: {episode.audio_url}</p>
+                    <button
+                      onClick={async () => {
+                        if (confirm('确定要删除已生成的音频吗？')) {
+                          try {
+                            await episodesApi.deleteAudio(parseInt(id))
+                            setEpisode({ ...episode, audio_url: '' })
+                          } catch (err) {
+                            alert('删除失败: ' + err.message)
+                          }
+                        }
+                      }}
+                      className="text-xs px-2 py-1 text-accent-coral hover:text-accent-coral/80 transition-colors"
+                    >
+                      <Trash2 className="w-3 h-3 inline mr-1" />
+                      删除音频
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Footer */}
+              <div className="px-6 py-4 border-t border-cream-300 bg-cream-200 flex items-center justify-between shrink-0">
+                <button
+                  onClick={() => {
+                    setShowGenerateEpisodeModal(false)
+                    setEditingEpisodeScript(false)
+                    setEditedEpisodeScript('')
+                  }}
+                  className="px-4 py-2 text-sm text-ink-50 hover:text-ink-300 transition-colors"
+                  disabled={generatingEpisodeScript || generatingAudio}
+                >
+                  {generatedEpisodeScript ? '关闭' : '取消'}
+                </button>
+
+                <div className="flex items-center gap-3">
+                  {/* 生成音频按钮 */}
+                  {generatedEpisodeScript && (
+                    <button
+                      onClick={handleGenerateEpisodeAudio}
+                      disabled={generatingAudio || generatingEpisodeScript}
+                      className="px-5 py-2.5 bg-accent-sage text-white text-sm font-medium rounded-xl hover:bg-accent-sage/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
+                    >
+                      {generatingAudio ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          生成中...
+                        </>
+                      ) : (ttsProgress?.stage === 'done' || episode?.audio_url) ? (
+                        <>
+                          <RefreshCw className="w-4 h-4" />
+                          重新生成音频
+                        </>
+                      ) : (
+                        <>
+                          <Volume2 className="w-4 h-4" />
+                          生成音频
+                        </>
+                      )}
+                    </button>
+                  )}
+
+                  {/* 生成逐字稿按钮 */}
+                  <button
+                    onClick={handleGenerateEpisodeScript}
+                    disabled={generatingEpisodeScript || generatingAudio || episodeNews.length === 0}
+                    className="px-6 py-2.5 bg-purple-500 text-white text-sm font-medium rounded-xl hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
+                  >
+                    {generatingEpisodeScript ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        生成中...
+                      </>
+                    ) : generatedEpisodeScript ? (
+                      <>
+                        <RefreshCw className="w-4 h-4" />
+                        重新生成逐字稿
+                      </>
+                    ) : (
+                      <>
+                        <Zap className="w-4 h-4" />
+                        生成逐字稿
+                      </>
+                    )}
                   </button>
                 </div>
               </div>

@@ -5,11 +5,14 @@ import time
 import subprocess
 import requests
 import threading
+import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import List, Optional
 
 from .tts_base import BaseTTSService, get_tts_service
+
+logger = logging.getLogger(__name__)
 
 # API 配置
 API_KEY = os.getenv("MINIMAX_API_KEY")
@@ -72,40 +75,31 @@ class MiniMaxTTSService(BaseTTSService):
         return dialogues
 
     def _upload_and_create_task(self, text: str, speaker: str, task_idx: int) -> dict:
-        """上传文本并创建任务"""
-        import tempfile
-
+        """直接发送文本并创建任务"""
         with self.semaphore:
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-                f.write(text)
-                temp_path = f.name
-
-            try:
-                with open(temp_path, 'rb') as f:
-                    files = {"file": ("temp_text.txt", f)}
-                    data = {"purpose": "t2a_async_input"}
-                    resp = requests.post(UPLOAD_URL, headers=HEADERS, data=data, files=files)
-
-                file_id = resp.json()["file"]["file_id"]
-
-                payload = {
-                    "model": "speech-2.6-hd",
-                    "text_file_id": file_id,
-                    "voice_setting": {
-                        "voice_id": VOICE_IDS[speaker],
-                        "speed": 1.0, "vol": 1.0, "pitch": 0
-                    },
-                    "audio_setting": {
-                        "sample_rate": 32000, "format": "mp3", "bitrate": 128000, "channel": 1
-                    }
+            payload = {
+                "model": "speech-2.8-hd",
+                "text": text,
+                "voice_setting": {
+                    "voice_id": VOICE_IDS[speaker]
                 }
-                resp = requests.post(T2A_ASYNC_URL, headers=HEADERS, json=payload)
-                task_id = resp.json().get("task_id")
+            }
+            resp = requests.post(
+                T2A_ASYNC_URL,
+                headers={
+                    "Authorization": f"Bearer {API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json=payload
+            )
 
-                return {"index": task_idx, "task_id": task_id, "speaker": speaker}
+            result = resp.json()
+            logger.info(f"T2A response: {result}")
+            if result.get("base_resp", {}).get("status_code") != 0:
+                raise Exception(f"创建任务失败: {result}")
 
-            finally:
-                os.unlink(temp_path)
+            task_id = result.get("task_id")
+            return {"index": task_idx, "task_id": task_id, "speaker": speaker}
 
     def _query_task(self, task_id: str) -> dict:
         """查询任务状态"""

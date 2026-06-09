@@ -34,6 +34,7 @@ class EpisodeNewsUpdate(BaseModel):
     order: int | None = None
     status: NewsStatus | None = None
     prompt: str | None = None
+    notes: str | None = None
     script: str | None = None
     audio_url: str | None = None
 
@@ -44,6 +45,7 @@ class EpisodeNewsResponse(EpisodeNewsBase):
     news_id: int
     order: int
     status: NewsStatus
+    notes: str
     script: str
     audio_url: str
     error_message: str | None

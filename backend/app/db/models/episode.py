@@ -20,6 +20,8 @@ class Episode(Base):
     intro_template = Column(Text, default="")
     outro_template = Column(Text, default="")
     script_prompt = Column(Text, default="")
+    script = Column(Text, default="")  # 整期节目逐字稿
+    audio_url = Column(String, default="")  # 生成的音频文件路径
     scheduled_date = Column(DateTime, nullable=True)  # 预计播出日期，与日历绑定
     created_at = Column(DateTime, default=datetime.utcnow)
     published_at = Column(DateTime, nullable=True)

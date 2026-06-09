@@ -1,5 +1,6 @@
 // API service for Podcast Studio frontend
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8002/api/v1'
+const AUDIO_BASE = API_BASE.replace('/api/v1', '')
 
 class ApiError extends Error {
   constructor(message, status) {
@@ -90,6 +91,7 @@ export const episodesApi = {
   create: (data) => request('/episodes/', { method: 'POST', body: data }),
   update: (id, data) => request(`/episodes/${id}`, { method: 'PUT', body: data }),
   delete: (id) => request(`/episodes/${id}`, { method: 'DELETE' }),
+  batchDelete: (ids) => request('/episodes/batch-delete', { method: 'POST', body: ids }),
   
   // Episode News
   listNews: (episodeId) => request(`/episodes/${episodeId}/news`),
@@ -109,12 +111,40 @@ export const episodesApi = {
       body: { script }
     }),
   
+  // Notes operations
+  updateNotes: (episodeId, newsId, notes) =>
+    request(`/episodes/${episodeId}/news/${newsId}/notes`, {
+      method: 'PUT',
+      body: { notes }
+    }),
+
   // Generation
   generateScript: (episodeId, newsId) => request(`/episodes/${episodeId}/news/${newsId}/generate-script`, { method: 'POST' }),
   generateAudio: (episodeId, newsId, voiceId = 'luoyonghao') => 
     request(`/episodes/${episodeId}/news/${newsId}/generate-audio?voice_id=${voiceId}`, { method: 'POST' }),
   generateAll: (episodeId) => request(`/episodes/${episodeId}/generate-all`, { method: 'POST' }),
   
+  // Episode-level script generation
+  generateEpisodeScript: (episodeId, episodeNotes = '') =>
+    request(`/episodes/${episodeId}/generate-episode-script`, {
+      method: 'POST',
+      body: { episode_notes: episodeNotes }
+    }),
+
+  // Episode-level audio generation
+  generateEpisodeAudio: (episodeId) =>
+    request(`/episodes/${episodeId}/generate-episode-audio`, { method: 'POST' }),
+
+  getAudioProgress: (episodeId) =>
+    request(`/episodes/${episodeId}/audio-progress`),
+
+  injectTestScript: (episodeId) =>
+    request(`/episodes/${episodeId}/inject-test-script`, { method: 'POST' }),
+
+  // Audio management
+  deleteAudio: (episodeId) =>
+    request(`/episodes/${episodeId}/audio`, { method: 'DELETE' }),
+
   // Batch generation
   batchGenerate: (episodeId, data) => request(`/episodes/${episodeId}/batch-generate`, { 
     method: 'POST', 
@@ -122,4 +152,4 @@ export const episodesApi = {
   }),
 }
 
-export { API_BASE }
+export { API_BASE, AUDIO_BASE }

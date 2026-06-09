@@ -27,12 +27,15 @@ class EpisodeUpdate(BaseModel):
     intro_template: str | None = None
     outro_template: str | None = None
     script_prompt: str | None = None  # 生成逐字稿的自定义提示词
+    script: str | None = None  # 整期逐字稿
     scheduled_date: datetime | None = None  # 预计播出日期
 
 
 class EpisodeResponse(EpisodeBase):
     id: int
     status: EpisodeStatus
+    script: str = ""
+    audio_url: str = ""
     created_at: datetime
     published_at: datetime | None = None
 

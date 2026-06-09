@@ -22,6 +22,7 @@ class EpisodeNews(Base):
     order = Column(Integer, default=0)
     status = Column(SQLEnum(NewsStatus), default=NewsStatus.PENDING)
     prompt = Column(Text, default="")
+    notes = Column(Text, default="")  # 单条新闻备注，引导 LLM 偏重方向
     script = Column(Text, default="")
     audio_url = Column(String, default="")
     error_message = Column(Text, nullable=True)
