@@ -78,6 +78,9 @@ export default function EpisodeDetail() {
   const [editedEpisodeScript, setEditedEpisodeScript] = useState('')
   const [savingEpisodeScript, setSavingEpisodeScript] = useState(false)
 
+  // 逐字稿恢复提示（刷新/重进页面后，从后端读到已有脚本时显示）
+  const [scriptLoadedFromCache, setScriptLoadedFromCache] = useState(false)
+
   // 音频生成状态
   const [generatingAudio, setGeneratingAudio] = useState(false)
   const [ttsProgress, setTtsProgress] = useState(null)
@@ -114,6 +117,16 @@ export default function EpisodeDetail() {
 
       const episodeData = await episodesApi.get(parseInt(id))
       setEpisode(episodeData)
+
+      // 从后端恢复已持久化的逐字稿（修复刷新后逐字稿丢失的 bug）
+      if (episodeData.script) {
+        setGeneratedEpisodeScript(episodeData.script)
+        setScriptLoadedFromCache(true)
+        // 5 秒后自动隐藏 toast 横幅（用户可手动 ✕ 关闭）
+        setTimeout(() => setScriptLoadedFromCache(false), 5000)
+      } else {
+        setScriptLoadedFromCache(false)
+      }
 
       const newsData = await episodesApi.listNews(parseInt(id))
       setEpisodeNews(newsData)
@@ -292,6 +305,7 @@ export default function EpisodeDetail() {
 
       const result = await episodesApi.generateEpisodeScript(parseInt(id), episodeNotes)
       setGeneratedEpisodeScript(result.script)
+      setScriptLoadedFromCache(false)  // 新生成的，逐字稿不是从缓存恢复的
 
       setEpisode({ ...episode, script: result.script })
     } catch (err) {
@@ -320,6 +334,7 @@ export default function EpisodeDetail() {
       setSavingEpisodeScript(true)
       await episodesApi.update(parseInt(id), { script: editedEpisodeScript })
       setGeneratedEpisodeScript(editedEpisodeScript)
+      setScriptLoadedFromCache(false)  // 主动保存过，不是纯缓存恢复
       setEpisode({ ...episode, script: editedEpisodeScript })
       setEditingEpisodeScript(false)
     } catch (err) {
@@ -748,6 +763,24 @@ export default function EpisodeDetail() {
 
         {/* Section 2: 逐字稿工作区 */}
         <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+          {/* 缓存恢复提示 —— 仅当从后端读到已持久化的逐字稿时显示几秒后自动消失 */}
+          {scriptLoadedFromCache && (
+            <div
+              className="bg-amber-50 border-b border-amber-200 px-5 py-2 text-xs text-amber-800 flex items-center justify-between shrink-0"
+              data-testid="script-cache-banner"
+            >
+              <span>
+                ✨ 已从数据库恢复之前生成的逐字稿（{generatedEpisodeScript.length} 字）
+              </span>
+              <button
+                onClick={() => setScriptLoadedFromCache(false)}
+                className="text-amber-600 hover:text-amber-900 ml-4"
+                aria-label="关闭提示"
+              >
+                ✕
+              </button>
+            </div>
+          )}
           <div className="flex items-center justify-between px-5 py-3 border-b border-cream-200 shrink-0">
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-medium text-ink-300">📄 逐字稿</h3>
