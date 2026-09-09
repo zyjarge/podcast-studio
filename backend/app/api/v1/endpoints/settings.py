@@ -102,20 +102,21 @@ async def get_env_keys():
 
 @router.post("/update-env")
 async def update_env(key: str, value: str):
-    """更新环境变量"""
-    valid_keys = ["DEEPSEEK_API_KEY", "MINIMAX_API_KEY", "ELEVENLABS_API_KEY"]
-    
+    """更新环境变量（写入 backend/app/api/.env + 立即更新进程内存，无需重启）"""
+    valid_keys = ["DEEPSEEK_API_KEY", "MINIMAX_API_KEY", "MINIMAX_CN_API_KEY",
+                  "ELEVENLABS_API_KEY", "TTS_MODEL", "TTS_SPEED", "TTS_VOL", "TTS_PITCH"]
+
     if key not in valid_keys:
         raise HTTPException(status_code=400, detail=f"无效的 key: {key}")
-    
+
     try:
-        # 读取现有 .env 文件
+        # 1) 读取现有 .env 文件
         env_lines = []
         if ENV_FILE.exists():
             with open(ENV_FILE, "r") as f:
                 env_lines = f.readlines()
-        
-        # 查找并更新或添加
+
+        # 2) 查找并更新或添加
         key_found = False
         new_lines = []
         for line in env_lines:
@@ -124,21 +125,28 @@ async def update_env(key: str, value: str):
                 key_found = True
             else:
                 new_lines.append(line)
-        
+
         if not key_found:
             new_lines.append(f"{key}={value}\n")
-        
-        # 写回文件
+
+        # 3) 写回文件
         with open(ENV_FILE, "w") as f:
             f.writelines(new_lines)
-        
-        # 更新当前进程的环境变量
+
+        # 4) 立即更新当前进程的 os.environ —— 下一次 TTS 请求就能拿到新值
         os.environ[key] = value
-        
-        logger.info(f"Updated {key} in .env file")
-        
-        return {"message": f"已更新 {key}", "key": key}
-        
+
+        logger.info(f"Updated {key} in {ENV_FILE} and os.environ")
+
+        # 5) 返回当前生效的 key 来源（调试用）
+        return {
+            "message": f"已更新 {key}（立即生效，无需重启）",
+            "key": key,
+            "value_preview": (value[:8] + "...") if value else "",
+            "saved_to": str(ENV_FILE),
+            "in_process_env": bool(os.environ.get(key)),
+        }
+
     except Exception as e:
         logger.error(f"Failed to update .env: {e}")
         raise HTTPException(status_code=500, detail=str(e))

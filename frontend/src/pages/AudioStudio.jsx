@@ -43,7 +43,7 @@ const mockAudios = [
     audioUrl: null,
     status: 'completed',
     duration: '2:15',
-    voiceId: 'wangziru_test',
+    voiceId: 'wangziru_latest',
     createdAt: '2026-02-25 10:40'
   },
   {
@@ -65,7 +65,7 @@ const mockAudios = [
     audioUrl: null,
     status: 'generating',
     duration: null,
-    voiceId: 'wangziru_test',
+    voiceId: 'wangziru_latest',
     createdAt: null
   },
   {
@@ -91,7 +91,7 @@ const statusConfig = {
 
 const speakerConfig = {
   luo: { name: '彪悍罗', voice: 'luoyonghao2', color: 'accent-coral' },
-  wang: { name: 'OK王', voice: 'wangziru_test', color: 'accent-sage' },
+  wang: { name: 'OK王', voice: 'wangziru_latest', color: 'accent-sage' },
 }
 
 export default function AudioStudio() {

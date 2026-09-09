@@ -18,7 +18,7 @@ load_dotenv()
 API_KEY = os.getenv("MINIMAX_API_KEY")
 VOICE_IDS = {
     "luoyonghao": "luoyonghao2",
-    "wangziru": "wangziru_test"
+    "wangziru": "wangziru_latest"
 }
 
 # API 端点

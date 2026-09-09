@@ -15,7 +15,7 @@ from .tts_base import BaseTTSService, get_tts_service
 API_KEY = os.getenv("MINIMAX_API_KEY")
 VOICE_IDS = {
     "luoyonghao": "luoyonghao2",
-    "wangziru": "wangziru_test"
+    "wangziru": "wangziru_latest"
 }
 
 UPLOAD_URL = "https://api.minimaxi.com/v1/files/upload"

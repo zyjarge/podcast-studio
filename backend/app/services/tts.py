@@ -15,18 +15,38 @@ from .tts_base import BaseTTSService, get_tts_service
 logger = logging.getLogger(__name__)
 
 # API 配置
-API_KEY = os.getenv("MINIMAX_API_KEY")
+# 优先读取 MINIMAX_API_KEY（国际站）；fallback 到 MINIMAX_CN_API_KEY（国内站 / MiniMax CN）
+# 注意：函数实时读 env，使前端 GUI 改 .env 后立即生效（无需重启）
+def _get_api_key() -> str:
+    return os.getenv("MINIMAX_API_KEY") or os.getenv("MINIMAX_CN_API_KEY") or ""
 VOICE_IDS = {
     "luoyonghao": "luoyonghao2",
-    "wangziru": "wangziru_test"
+    "wangziru": "wangziru_latest"
 }
 
 UPLOAD_URL = "https://api.minimaxi.com/v1/files/upload"
 T2A_ASYNC_URL = "https://api.minimaxi.com/v1/t2a_async_v2"
 TASK_QUERY_URL = "https://api.minimaxi.com/v1/query/t2a_async_query_v2"
-HEADERS = {"Authorization": f"Bearer {API_KEY}"}
+HEADERS = {"Authorization": "Bearer "}  # 占位；实际请求时通过 _get_headers() 实时拼
+
+def _get_headers() -> dict:
+    """每次请求实时从 env 读取 key，保证前端 GUI 改 .env 后立即生效"""
+    return {"Authorization": f"Bearer {_get_api_key()}"}
 
 MAX_CONCURRENT = 5
+
+# 声音风格参数（可通过环境变量调整；函数实时读 env，GUI 改后立即生效）
+#   TTS_MODEL  - 合成模型，默认 speech-2.8-hd；可选 speech-2.6-hd 更沉稳
+#   TTS_SPEED  - 语速，范围 [0.5, 2]；默认 0.9（实测比 1.0 自然）
+#   TTS_VOL    - 音量，范围 (0, 10]；默认 1.0
+#   TTS_PITCH  - 音调，范围 [-12, 12]；默认 0
+def _get_tts_config() -> dict:
+    return {
+        "model": os.getenv("TTS_MODEL", "speech-2.8-hd"),
+        "speed": float(os.getenv("TTS_SPEED", "0.9")),
+        "vol": float(os.getenv("TTS_VOL", "1.0")),
+        "pitch": int(os.getenv("TTS_PITCH", "0")),
+    }
 
 
 @dataclass
@@ -77,17 +97,21 @@ class MiniMaxTTSService(BaseTTSService):
     def _upload_and_create_task(self, text: str, speaker: str, task_idx: int) -> dict:
         """直接发送文本并创建任务"""
         with self.semaphore:
+            cfg = _get_tts_config()
             payload = {
-                "model": "speech-2.8-hd",
+                "model": cfg["model"],
                 "text": text,
                 "voice_setting": {
-                    "voice_id": VOICE_IDS[speaker]
+                    "voice_id": VOICE_IDS[speaker],
+                    "speed": cfg["speed"],
+                    "vol": cfg["vol"],
+                    "pitch": cfg["pitch"],
                 }
             }
             resp = requests.post(
                 T2A_ASYNC_URL,
                 headers={
-                    "Authorization": f"Bearer {API_KEY}",
+                    "Authorization": f"Bearer {_get_api_key()}",
                     "Content-Type": "application/json"
                 },
                 json=payload
@@ -104,7 +128,7 @@ class MiniMaxTTSService(BaseTTSService):
     def _query_task(self, task_id: str) -> dict:
         """查询任务状态"""
         url = f"{TASK_QUERY_URL}?task_id={task_id}"
-        resp = requests.get(url, headers=HEADERS)
+        resp = requests.get(url, headers=_get_headers())
         return resp.json()
 
     def _wait_task(self, task_id: str, max_wait: int = 600) -> str:
@@ -125,7 +149,7 @@ class MiniMaxTTSService(BaseTTSService):
     def _download_audio(self, file_id: str) -> bytes:
         """下载音频"""
         url = f"https://api.minimaxi.com/v1/files/retrieve_content?file_id={file_id}"
-        resp = requests.get(url, headers=HEADERS)
+        resp = requests.get(url, headers=_get_headers())
         return resp.content
 
     def generate(self, text: str, speaker: str, output_path: str) -> str:

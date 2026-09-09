@@ -52,7 +52,7 @@ class MiniMaxTTSService(BaseTTSService):
     # 音色配置
     VOICE_IDS = {
         "luoyonghao": "luoyonghao2",
-        "wangziru": "wangziru_test"
+        "wangziru": "wangziru_latest"
     }
 
     API_KEY = os.getenv("MINIMAX_API_KEY")

@@ -52,7 +52,7 @@ const voiceSettings = [
     name: 'OK王',
     description: '专业、客观、理性风格',
     provider: 'MiniMax',
-    voiceId: 'wangziru_test',
+    voiceId: 'wangziru_latest',
     speed: 1.0,
     pitch: 0,
   },

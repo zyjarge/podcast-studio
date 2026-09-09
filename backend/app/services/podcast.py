@@ -28,7 +28,9 @@ class PodcastService:
         else:
             logger.warning("DEEPSEEK_API_KEY not set, LLM service not available")
             
-        if settings.MINIMAX_API_KEY:
+        # 实时读 env（pydantic-settings 缓存的 settings.MINIMAX_API_KEY 是启动时的快照，
+        # 不能反映前端 GUI 改 .env 后的新值 —— 所以这里直接读 os.environ）
+        if os.getenv("MINIMAX_API_KEY") or os.getenv("MINIMAX_CN_API_KEY"):
             self.tts = MiniMaxTTSService()
             logger.info("MiniMax TTS service initialized")
         else:

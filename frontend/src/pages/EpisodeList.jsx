@@ -14,7 +14,10 @@ import {
   Volume2,
   Loader2,
   Trash2,
-  AlertTriangle
+  AlertTriangle,
+  CheckSquare,
+  Square,
+  Trash
 } from 'lucide-react'
 import { episodesApi } from '../services/api'
 
@@ -31,7 +34,10 @@ export default function EpisodeList() {
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [newEpisodeTitle, setNewEpisodeTitle] = useState('')
   const [creating, setCreating] = useState(false)
-  const [deleteMode, setDeleteMode] = useState(null) // 当前处于删除模式的节目ID
+  const [deleteMode, setDeleteMode] = useState(null) // 当前处于删除确认模式的节目ID
+  const [selectedIds, setSelectedIds] = useState(new Set()) // 批量选中
+  const [showBatchDeleteConfirm, setShowBatchDeleteConfirm] = useState(false)
+  const [batchDeleting, setBatchDeleting] = useState(false)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -53,8 +59,6 @@ export default function EpisodeList() {
   }
 
   const handleCreateEpisode = async () => {
-    const title = newEpisodeTitle.trim() || `${new Date().toLocaleDateString('zh-CN')} - 科技播客`
-    
     try {
       setCreating(true)
       const title = newEpisodeTitle || `${new Date().toLocaleDateString('zh-CN')} - 科技播客`
@@ -82,6 +86,41 @@ export default function EpisodeList() {
     }
   }
 
+  const handleBatchDelete = async () => {
+    const ids = Array.from(selectedIds)
+    try {
+      setBatchDeleting(true)
+      await episodesApi.batchDelete(ids)
+      setEpisodes(episodes.filter(e => !selectedIds.has(e.id)))
+      setSelectedIds(new Set())
+      setShowBatchDeleteConfirm(false)
+    } catch (err) {
+      console.error('Failed to batch delete:', err)
+      setError('批量删除失败')
+    } finally {
+      setBatchDeleting(false)
+    }
+  }
+
+  const toggleSelect = (id, e) => {
+    e.stopPropagation()
+    const newSet = new Set(selectedIds)
+    if (newSet.has(id)) {
+      newSet.delete(id)
+    } else {
+      newSet.add(id)
+    }
+    setSelectedIds(newSet)
+  }
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === episodes.length) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(episodes.map(e => e.id)))
+    }
+  }
+
   const today = new Date().toLocaleDateString('zh-CN', {
     year: 'numeric',
     month: 'long',
@@ -89,7 +128,6 @@ export default function EpisodeList() {
   })
 
   const getProgress = (episode) => {
-    // 暂时返回 0，因为 EpisodeNews 关联还没查
     return 0
   }
 
@@ -132,8 +170,11 @@ export default function EpisodeList() {
 
       {/* 错误提示 */}
       {error && (
-        <div className="mb-4 p-4 bg-red-100 text-red-600 rounded-xl">
-          {error}
+        <div className="mb-4 p-4 bg-red-100 text-red-600 rounded-xl flex items-center justify-between">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="text-red-400 hover:text-red-600">
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 
@@ -163,6 +204,52 @@ export default function EpisodeList() {
         </div>
       </div>
 
+      {/* 批量操作栏 */}
+      <AnimatePresence>
+        {selectedIds.size > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="mb-4 p-3 bg-red-50 border border-red-200 rounded-2xl flex items-center justify-between"
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-red-600 font-medium">已选择 {selectedIds.size} 个节目</span>
+              <button
+                onClick={() => setSelectedIds(new Set())}
+                className="text-sm text-ink-50 hover:text-ink-300 transition-colors"
+              >
+                取消选择
+              </button>
+            </div>
+            <button
+              onClick={() => setShowBatchDeleteConfirm(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-xl font-medium hover:bg-red-600 transition-colors"
+            >
+              <Trash className="w-4 h-4" />
+              批量删除
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 全选行 */}
+      {episodes.length > 0 && (
+        <div className="flex items-center gap-3 mb-3 px-2">
+          <button
+            onClick={toggleSelectAll}
+            className="flex items-center gap-2 text-sm text-ink-50 hover:text-ink-300 transition-colors"
+          >
+            {selectedIds.size === episodes.length && episodes.length > 0 ? (
+              <CheckSquare className="w-4 h-4 text-accent-coral" />
+            ) : (
+              <Square className="w-4 h-4" />
+            )}
+            全选
+          </button>
+        </div>
+      )}
+
       {/* 节目列表 */}
       <div className="space-y-4">
         {episodes.length === 0 ? (
@@ -173,6 +260,7 @@ export default function EpisodeList() {
           <AnimatePresence>
             {episodes.map((episode, index) => {
               const status = statusConfig[episode.status] || statusConfig.draft
+              const isSelected = selectedIds.has(episode.id)
               const progress = getProgress(episode)
 
               return (
@@ -182,10 +270,24 @@ export default function EpisodeList() {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, x: -100 }}
                   transition={{ delay: index * 0.05 }}
-                  className="bg-cream-100 rounded-2xl border border-cream-300 overflow-hidden hover:border-cream-400 transition-colors cursor-pointer"
+                  className={`bg-cream-100 rounded-2xl border overflow-hidden hover:border-cream-400 transition-colors cursor-pointer ${
+                    isSelected ? 'border-red-300 ring-1 ring-red-200' : 'border-cream-300'
+                  }`}
                   onClick={() => navigate(`/episode/${episode.id}`)}
                 >
                   <div className="flex items-stretch">
+                    {/* 选择框 */}
+                    <div
+                      className="w-14 flex items-center justify-center bg-cream-200/50"
+                      onClick={(e) => toggleSelect(episode.id, e)}
+                    >
+                      {isSelected ? (
+                        <CheckSquare className="w-5 h-5 text-accent-coral" />
+                      ) : (
+                        <Square className="w-5 h-5 text-ink-50" />
+                      )}
+                    </div>
+
                     {/* 左侧：状态指示条 */}
                     <div className={`w-2 bg-${status.color}`} />
 
@@ -320,6 +422,56 @@ export default function EpisodeList() {
                   className="px-4 py-2 bg-accent-coral text-cream-100 rounded-xl font-medium hover:bg-accent-coral/90 transition-colors disabled:opacity-50"
                 >
                   {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : '创建并编辑'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 批量删除确认弹窗 */}
+      <AnimatePresence>
+        {showBatchDeleteConfirm && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-ink-900/50 flex items-center justify-center z-50"
+            onClick={() => !batchDeleting && setShowBatchDeleteConfirm(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-cream-100 rounded-3xl p-6 w-[420px] shadow-2xl"
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
+                  <AlertTriangle className="w-6 h-6 text-red-500" />
+                </div>
+                <h2 className="font-display text-xl font-semibold text-ink-300">确认批量删除</h2>
+              </div>
+
+              <p className="text-ink-50 mb-6">
+                确定要删除选中的 <span className="font-semibold text-red-500">{selectedIds.size}</span> 个节目吗？此操作不可恢复。
+              </p>
+
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => setShowBatchDeleteConfirm(false)}
+                  disabled={batchDeleting}
+                  className="px-4 py-2 text-ink-50 hover:bg-cream-200 rounded-xl transition-colors"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={handleBatchDelete}
+                  disabled={batchDeleting}
+                  className="px-4 py-2 bg-red-500 text-white rounded-xl font-medium hover:bg-red-600 transition-colors disabled:opacity-50 flex items-center gap-2"
+                >
+                  {batchDeleting && <Loader2 className="w-4 h-4 animate-spin" />}
+                  确认删除
                 </button>
               </div>
             </motion.div>

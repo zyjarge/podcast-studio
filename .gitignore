@@ -4,9 +4,15 @@
 # 数据目录
 data/
 
+# Python 编译缓存
+**/__pycache__/
+*.pyc
+
 # 前端构建产物
+frontend/dist/
 V1/frontend/dist/
 frontend/node_modules/
+V1/frontend/node_modules/
 V1/frontend/.vite/
 V1/frontend/package-lock.json
 

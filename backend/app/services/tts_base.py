@@ -52,13 +52,35 @@ class MiniMaxTTSService(BaseTTSService):
     # 音色配置
     VOICE_IDS = {
         "luoyonghao": "luoyonghao2",
-        "wangziru": "wangziru_test"
+        "wangziru": "wangziru_latest"
     }
 
-    API_KEY = os.getenv("MINIMAX_API_KEY")
+    API_KEY = os.getenv("MINIMAX_API_KEY") or os.getenv("MINIMAX_CN_API_KEY")  # 类属性，兼容旧用法
+
+    def _api_key(self) -> str:
+        """每次请求实时读 env，GUI 改 key 立即生效"""
+        return os.getenv("MINIMAX_API_KEY") or os.getenv("MINIMAX_CN_API_KEY") or ""
+
+    def _tts_config(self) -> dict:
+        return {
+            "model": os.getenv("TTS_MODEL", "speech-2.6-hd"),
+            "speed": float(os.getenv("TTS_SPEED", "0.9")),
+            "vol": float(os.getenv("TTS_VOL", "1.0")),
+            "pitch": int(os.getenv("TTS_PITCH", "0")),
+        }
     UPLOAD_URL = "https://api.minimaxi.com/v1/files/upload"
     T2A_URL = "https://api.minimaxi.com/v1/t2a_async_v2"
     QUERY_URL = "https://api.minimaxi.com/v1/query/t2a_async_query_v2"
+
+    # 声音风格参数（可通过环境变量调整，与 tts.py 保持一致）
+    #   TTS_MODEL  - 默认 speech-2.6-hd；可选 speech-2.8-hd
+    #   TTS_SPEED  - 语速 [0.5, 2]；默认 0.9
+    #   TTS_VOL    - 音量 (0, 10]；默认 1.0
+    #   TTS_PITCH  - 音调 [-12, 12]；默认 0
+    TTS_MODEL = os.getenv("TTS_MODEL", "speech-2.6-hd")
+    TTS_SPEED = float(os.getenv("TTS_SPEED", "0.9"))
+    TTS_VOL = float(os.getenv("TTS_VOL", "1.0"))
+    TTS_PITCH = int(os.getenv("TTS_PITCH", "0"))
 
     def __init__(self, max_concurrent: int = 5):
         self.max_concurrent = max_concurrent
@@ -89,26 +111,29 @@ class MiniMaxTTSService(BaseTTSService):
                     data = {"purpose": "t2a_async_input"}
                     resp = self.requests.post(
                         self.UPLOAD_URL,
-                        headers={"Authorization": f"Bearer {self.API_KEY}"},
+                        headers={"Authorization": f"Bearer {self._api_key()}"},
                         data=data, files=files
                     )
                 file_id = resp.json()["file"]["file_id"]
 
+                cfg = self._tts_config()
                 # 创建任务
                 payload = {
-                    "model": "speech-2.6-hd",
+                    "model": cfg["model"],
                     "text_file_id": file_id,
                     "voice_setting": {
                         "voice_id": self.VOICE_IDS[speaker],
-                        "speed": 1.0, "vol": 1.0, "pitch": 0
+                        "speed": cfg["speed"],
+                        "vol": cfg["vol"],
+                        "pitch": cfg["pitch"]
                     },
                     "audio_setting": {
-                        "sample_rate": 32000, "format": "mp3", "bitrate": 128000, "channel": 1
+                        "audio_sample_rate": 32000, "format": "mp3", "bitrate": 128000, "channel": 1
                     }
                 }
                 resp = self.requests.post(
                     self.T2A_URL,
-                    headers={"Authorization": f"Bearer {self.API_KEY}"},
+                    headers={"Authorization": f"Bearer {self._api_key()}"},
                     json=payload
                 )
                 task_id = resp.json().get("task_id")
@@ -117,7 +142,7 @@ class MiniMaxTTSService(BaseTTSService):
                 while True:
                     result = self.requests.get(
                         f"{self.QUERY_URL}?task_id={task_id}",
-                        headers={"Authorization": f"Bearer {self.API_KEY}"}
+                        headers={"Authorization": f"Bearer {self._api_key()}"}
                     ).json()
                     status = result.get("status", "")
                     if status == "Success":

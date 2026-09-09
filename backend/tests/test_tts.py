@@ -12,7 +12,7 @@ class TestMiniMaxTTSService:
         assert "luoyonghao" in VOICE_IDS
         assert "wangziru" in VOICE_IDS
         assert VOICE_IDS["luoyonghao"] == "luoyonghao2"
-        assert VOICE_IDS["wangziru"] == "wangziru_test"
+        assert VOICE_IDS["wangziru"] == "wangziru_latest"
 
     def test_parse_dialogues(self):
         """Test parsing dialogues from script"""
