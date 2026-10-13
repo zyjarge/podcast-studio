@@ -157,7 +157,7 @@ export default function MaterialDrawer({ open, onClose, episodeId, onAdd }) {
                                 : 'border-cream-300 hover:border-cream-400'
                             }`}
                           >
-                            <div className="flex items-start justify-between gap-2 mb-2">
+                            <div className="flex items-start justify-between gap-2 mb-1.5">
                               <h3 className="text-sm font-medium text-ink-300 leading-snug line-clamp-2">
                                 {n.title}
                               </h3>
@@ -169,6 +169,9 @@ export default function MaterialDrawer({ open, onClose, episodeId, onAdd }) {
                                 {checked && <Check className="w-3.5 h-3.5 text-cream-100" />}
                               </span>
                             </div>
+                            <p className="text-xs text-ink-50 leading-relaxed line-clamp-2 mb-2.5">
+                              {n.summary}
+                            </p>
                             <div className="flex items-center gap-2 text-xs text-ink-50 mb-2">
                               <span>{n.source}</span>
                               <StarRating score={n.score} />
