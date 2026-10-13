@@ -4,7 +4,9 @@ from app.core.config import settings
 import httpx
 import logging
 import os
+import tempfile
 from pathlib import Path
+from threading import Lock
 
 logger = logging.getLogger(__name__)
 
@@ -13,8 +15,44 @@ router = APIRouter()
 # .env 文件路径
 ENV_FILE = Path(__file__).parent.parent.parent / ".env"
 
+# Serialise concurrent writers of .env. update_env and update_script_prompt
+# both mutate the same file; without this lock two requests can clobber each
+# other and the lockfile-less rename race writes could end up with mixed
+# content.
+_env_write_lock = Lock()
+
 # 提示词配置的 key
 SCRIPT_PROMPT_KEY = "SCRIPT_PROMPT"
+
+
+def _atomic_replace_env(target: Path, lines: list) -> None:
+    """Atomically replace the contents of `target` with `lines`.
+
+    POSIX rename(2) replaces one inode atomically. We write to a
+    NamedTemporaryFile in the same directory (so it lands on the same
+    filesystem), fsync it, then os.replace onto the final path. A crash
+    at any point leaves the previous .env intact instead of corrupting
+    it. Sequential callers are serialised by the caller's lock.
+    """
+    target = Path(target)
+    payload = "".join(lines).encode("utf-8")
+    # delete=False so we control the rename; dir= same filesystem.
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=target.name + ".", suffix=".tmp", dir=str(target.parent)
+    )
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(payload)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, target)
+    except Exception:
+        # Cleanup partial temp file; original .env untouched.
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 class ScriptPromptResponse(BaseModel):
@@ -110,35 +148,35 @@ async def update_env(key: str, value: str):
         raise HTTPException(status_code=400, detail=f"无效的 key: {key}")
 
     try:
-        # 1) 读取现有 .env 文件
-        env_lines = []
-        if ENV_FILE.exists():
-            with open(ENV_FILE, "r") as f:
-                env_lines = f.readlines()
+        # 1) Read-modify-write under lock so two requests can't tear each other.
+        with _env_write_lock:
+            env_lines: list = []
+            if ENV_FILE.exists():
+                with open(ENV_FILE, "r") as f:
+                    env_lines = f.readlines()
 
-        # 2) 查找并更新或添加
-        key_found = False
-        new_lines = []
-        for line in env_lines:
-            if line.strip().startswith(f"{key}="):
+            # 2) Replace the key's line in-place; append if it's new.
+            key_found = False
+            new_lines: list = []
+            for line in env_lines:
+                if line.strip().startswith(f"{key}="):
+                    new_lines.append(f"{key}={value}\n")
+                    key_found = True
+                else:
+                    new_lines.append(line)
+
+            if not key_found:
                 new_lines.append(f"{key}={value}\n")
-                key_found = True
-            else:
-                new_lines.append(line)
 
-        if not key_found:
-            new_lines.append(f"{key}={value}\n")
+            # 3) Atomic write — see _atomic_replace_env docstring.
+            _atomic_replace_env(ENV_FILE, new_lines)
 
-        # 3) 写回文件
-        with open(ENV_FILE, "w") as f:
-            f.writelines(new_lines)
-
-        # 4) 立即更新当前进程的 os.environ —— 下一次 TTS 请求就能拿到新值
+        # 4) Update the process env even if the file write above raised;
+        # in-memory state survives a failed disk write but not the inverse.
         os.environ[key] = value
 
         logger.info(f"Updated {key} in {ENV_FILE} and os.environ")
 
-        # 5) 返回当前生效的 key 来源（调试用）
         return {
             "message": f"已更新 {key}（立即生效，无需重启）",
             "key": key,
@@ -174,33 +212,32 @@ async def get_script_prompt():
 async def update_script_prompt(data: ScriptPromptUpdate):
     """更新提示词配置"""
     try:
-        # 读取现有 .env 文件
-        env_lines = []
-        if ENV_FILE.exists():
-            with open(ENV_FILE, "r") as f:
-                env_lines = f.readlines()
-        
-        # 查找并更新或添加
-        key_found = False
-        new_lines = []
-        for line in env_lines:
-            if line.strip().startswith(f"{SCRIPT_PROMPT_KEY}="):
+        # Issue #6: same non-atomic-write bug as update_env. Use the
+        # shared helper so a crash mid-write cannot corrupt .env.
+        with _env_write_lock:
+            env_lines: list = []
+            if ENV_FILE.exists():
+                with open(ENV_FILE, "r") as f:
+                    env_lines = f.readlines()
+
+            key_found = False
+            new_lines: list = []
+            for line in env_lines:
+                if line.strip().startswith(f"{SCRIPT_PROMPT_KEY}="):
+                    new_lines.append(f"{SCRIPT_PROMPT_KEY}={data.script_prompt}\n")
+                    key_found = True
+                else:
+                    new_lines.append(line)
+
+            if not key_found:
                 new_lines.append(f"{SCRIPT_PROMPT_KEY}={data.script_prompt}\n")
-                key_found = True
-            else:
-                new_lines.append(line)
-        
-        if not key_found:
-            new_lines.append(f"{SCRIPT_PROMPT_KEY}={data.script_prompt}\n")
-        
-        # 写回文件
-        with open(ENV_FILE, "w") as f:
-            f.writelines(new_lines)
-        
+
+            _atomic_replace_env(ENV_FILE, new_lines)
+
         logger.info(f"Updated {SCRIPT_PROMPT_KEY} in .env file")
-        
+
         return {"message": "提示词已保存", "script_prompt": data.script_prompt}
-        
+
     except Exception as e:
         logger.error(f"Failed to update script prompt: {e}")
         raise HTTPException(status_code=500, detail=str(e))
