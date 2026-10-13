@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Body, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Body, BackgroundTasks, Request
 from sqlalchemy.orm import Session, joinedload
 from app.db.session import get_db
 from app.db.models import Episode, EpisodeNews, News, NewsStatus
@@ -93,8 +93,45 @@ def delete_episode(episode_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/batch-delete")
-def batch_delete_episodes(episode_ids: List[int], db: Session = Depends(get_db)):
-    """批量删除节目"""
+async def batch_delete_episodes(request: Request, db: Session = Depends(get_db)):
+    """批量删除节目
+
+    Issue #15: original signature was a naked List[int], so FastAPI only
+    accepted the raw JSON-array form `[1,2,3]`. Any future refactor on
+    the frontend (or another caller) that sends `{episode_ids: [...]}` -
+    which is the convention used elsewhere in this router (batch-generate
+    already uses a Pydantic model) - silently fails with 422 instead of
+    a usable error. Accept both shapes here; new code should keep using
+    the model form.
+    """
+    # Read the raw request body so we accept both the bare-array and the
+    # wrapped-object shapes without Pydantic pre-empting us. This endpoint
+    # is the only one in this router with this dual-shape contract; the
+    # rest already use a Pydantic model.
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=422, detail="body must be JSON")
+
+    if isinstance(payload, dict):
+        episode_ids = payload.get("episode_ids")
+    elif isinstance(payload, list):
+        # Legacy bare-array shape.
+        episode_ids = payload
+    else:
+        episode_ids = None
+
+    if not isinstance(episode_ids, list) or not all(
+        isinstance(x, int) and not isinstance(x, bool) for x in episode_ids
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="expected {episode_ids: list[int]} or a bare JSON array of int",
+        )
+
+    if not episode_ids:
+        raise HTTPException(status_code=400, detail="episode_ids must not be empty")
+
     episodes = db.query(Episode).filter(Episode.id.in_(episode_ids)).all()
     if not episodes:
         raise HTTPException(status_code=404, detail="No episodes found")
