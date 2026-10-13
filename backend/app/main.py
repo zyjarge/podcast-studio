@@ -1,6 +1,8 @@
 from contextlib import asynccontextmanager
 import os
-from fastapi import FastAPI
+import re
+from pathlib import Path
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from app.core.config import settings
@@ -10,6 +12,16 @@ from app.api.v1.router import api_router
 import logging
 
 logger = logging.getLogger(__name__)
+
+# --- path-traversal hardening for /audio/{episode_id}/{filename} -----------
+# Filenames must be a flat id-style string. We refuse anything containing
+# path separators, dot-segments, or shell metacharacters.
+_SAFE_FILENAME = re.compile(r"^[A-Za-z0-9_\-\.]+$")
+# Resolved audio root. We pin against the same absolute directory the runtime
+# is launched from (which is backend/ when uvicorn is started there). Using
+# an absolute resolved path lets us do a strict prefix check rather than
+# relying on os.path.join, which silently strips dot-segments.
+_AUDIO_ROOT = (Path(os.getcwd()) / "data" / "audio").resolve()
 
 
 def _migrate_db():
@@ -76,8 +88,26 @@ def health():
 
 @app.get("/audio/{episode_id}/{filename}")
 async def serve_audio(episode_id: int, filename: str):
-    """Serve generated audio files"""
-    audio_path = os.path.join("data/audio", f"episode_{episode_id}", filename)
-    if os.path.exists(audio_path):
-        return FileResponse(audio_path, media_type="audio/mpeg")
-    return {"error": "File not found"}
+    """Serve generated audio files.
+
+    Path-traversal hardening (issue #3): we never trust the raw filename.
+    First, we restrict it to a safe character class. Then we resolve the
+    candidate path and assert it still lives under data/audio/.
+    """
+    if not _SAFE_FILENAME.match(filename):
+        raise HTTPException(status_code=400, detail="invalid filename")
+    # Episode id is typed int, but be defensive: refuse negatives / zero too.
+    if episode_id <= 0:
+        raise HTTPException(status_code=400, detail="invalid episode id")
+
+    target = (_AUDIO_ROOT / f"episode_{episode_id}" / filename).resolve()
+    try:
+        # Path.is_relative_to lands in 3.9+, but a str.startswith check
+        # with the resolved prefix is more portable across Python 3.8+.
+        target.relative_to(_AUDIO_ROOT)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="path traversal blocked")
+
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(str(target), media_type="audio/mpeg")
