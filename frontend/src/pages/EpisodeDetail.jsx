@@ -22,6 +22,8 @@ import {
   Loader2,
   Newspaper,
   BadgeCheck,
+  Sparkles,
+  X,
 } from 'lucide-react'
 import {
   useStore,
@@ -34,8 +36,9 @@ import {
   setEpisodeScript,
   setEpisodeAudio,
   publishEpisode,
+  setTitleSuggestions,
 } from '../mock/store'
-import { mockGenerateScript, mockGenerateAudio } from '../mock/api'
+import { mockGenerateScript, mockGenerateAudio, mockGenerateTitles } from '../mock/api'
 import { useToast } from '../components/Toast'
 import ConfirmDialog from '../components/ConfirmDialog'
 import MaterialDrawer from '../components/MaterialDrawer'
@@ -253,6 +256,17 @@ export default function EpisodeDetail() {
     }
   }, [episode?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // AI 标题建议
+  const [titlePanelOpen, setTitlePanelOpen] = useState(false)
+  const [titleLoading, setTitleLoading] = useState(false)
+  const [titleUnread, setTitleUnread] = useState(false)
+  const [appliedTitle, setAppliedTitle] = useState('')
+  useEffect(() => {
+    setTitlePanelOpen(false)
+    setTitleUnread(false)
+    setAppliedTitle('')
+  }, [episode?.id])
+
   // 备注
   const [notesOpen, setNotesOpen] = useState(true)
   const [notesDraft, setNotesDraft] = useState('')
@@ -308,11 +322,33 @@ export default function EpisodeDetail() {
   const saveTitle = () => {
     const v = titleDraft.trim()
     if (v && v !== episode.title) {
-      updateEpisode(id, { title: v })
+      updateEpisode(id, { title: v, titleCustom: true })
       toast.success('已保存')
     } else {
       setTitleDraft(episode.title)
     }
+  }
+
+  // AI 标题建议：随逐字稿产出；标题还没被确认过时自动展开面板
+  const loadTitles = async (autoOpen = false) => {
+    if (episodeNews.length === 0) return
+    if (autoOpen) setTitlePanelOpen(true)
+    setTitleLoading(true)
+    try {
+      const list = await mockGenerateTitles(episodeNews)
+      setTitleSuggestions(id, list)
+      setTitleUnread(!autoOpen)
+    } finally {
+      setTitleLoading(false)
+    }
+  }
+
+  const applyTitleSuggestion = (s) => {
+    updateEpisode(id, { title: s.text, titleCustom: true })
+    setTitleDraft(s.text)
+    setAppliedTitle(s.text)
+    setTitleUnread(false)
+    toast.success('已更新标题')
   }
 
   const saveDate = () => {
@@ -358,6 +394,8 @@ export default function EpisodeDetail() {
       const script = await mockGenerateScript(episodeNews, setScriptStage)
       setEpisodeScript(id, script)
       toast.success(`逐字稿已生成，共 ${countChars(script).toLocaleString('zh-CN')} 字`)
+      // 标题建议随稿产出（不阻塞主流程）
+      loadTitles(!episode.titleCustom)
     } finally {
       setScriptGenerating(false)
       setScriptStage('')
@@ -412,6 +450,22 @@ export default function EpisodeDetail() {
               onKeyDown={(e) => e.key === 'Enter' && e.target.blur()}
               className="flex-1 min-w-0 text-lg font-semibold text-ink-300 bg-transparent border border-transparent hover:border-cream-300 focus:border-accent-coral focus:bg-cream-100 rounded-lg px-2 py-1 -ml-2 focus:outline-none transition-colors"
             />
+            <button
+              onClick={() => {
+                const next = !titlePanelOpen
+                setTitlePanelOpen(next)
+                setTitleUnread(false)
+                if (next && (episode.titleSuggestions || []).length === 0) loadTitles(false)
+              }}
+              disabled={!episode.script}
+              title={episode.script ? 'AI 标题建议' : '生成逐字稿后，AI 可以推荐标题'}
+              className="relative shrink-0 p-2 rounded-lg text-ink-50 hover:text-accent-coral hover:bg-cream-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Sparkles className="w-4 h-4" />
+              {titleUnread && !titlePanelOpen && (
+                <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-accent-sky" />
+              )}
+            </button>
             {published && (
               <span className="shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-full bg-accent-sage/15 text-accent-sage text-xs font-medium">
                 <BadgeCheck className="w-3.5 h-3.5" />
@@ -419,6 +473,82 @@ export default function EpisodeDetail() {
               </span>
             )}
           </div>
+
+          {/* AI 标题建议面板 */}
+          <AnimatePresence>
+            {titlePanelOpen && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.2, ease: 'easeOut' }}
+                className="overflow-hidden"
+              >
+                <div className="mt-2 rounded-xl border border-cream-300 bg-cream-100 p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-ink-300">
+                      <Sparkles className="w-3.5 h-3.5 text-accent-coral" />
+                      AI 标题建议 · 基于本期内容
+                    </span>
+                    <button
+                      onClick={() => setTitlePanelOpen(false)}
+                      className="p-1 rounded-md hover:bg-cream-200 text-ink-50 hover:text-ink-300 transition-colors"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  {titleLoading ? (
+                    <div className="py-4 flex items-center justify-center gap-2 text-xs text-ink-50">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      AI 正在构思标题…
+                    </div>
+                  ) : (
+                    <>
+                      <div className="space-y-1.5">
+                        {(episode.titleSuggestions || []).map((s) => {
+                          const applied = appliedTitle === s.text && episode.title === s.text
+                          return (
+                            <button
+                              key={s.text}
+                              onClick={() => applyTitleSuggestion(s)}
+                              className={`w-full text-left px-2.5 py-2 rounded-lg border transition-all ${
+                                applied
+                                  ? 'border-accent-sage bg-accent-sage/10'
+                                  : 'border-cream-300 bg-cream-200 hover:border-accent-coral'
+                              }`}
+                            >
+                              <span className="inline-flex items-center gap-1.5">
+                                <span className="px-1.5 py-0.5 rounded bg-cream-300 text-[10px] text-ink-50">
+                                  {s.style}
+                                </span>
+                                {applied && <Check className="w-3.5 h-3.5 text-accent-sage" />}
+                              </span>
+                              <span className="block mt-1 text-xs text-ink-300 leading-relaxed">{s.text}</span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                      <div className="mt-2.5 flex items-center justify-between">
+                        <button
+                          onClick={() => loadTitles(false)}
+                          className="inline-flex items-center gap-1 text-xs text-ink-50 hover:text-accent-coral transition-colors"
+                        >
+                          <RefreshCw className="w-3 h-3" />
+                          换一批
+                        </button>
+                        <button
+                          onClick={() => setTitlePanelOpen(false)}
+                          className="text-xs text-ink-50 hover:text-ink-300 transition-colors"
+                        >
+                          忽略
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
           <div className="mt-2 flex items-center gap-2 text-sm text-ink-50">
             <span className="text-xs">播出日期</span>
             <input

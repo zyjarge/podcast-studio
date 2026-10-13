@@ -86,6 +86,8 @@ export function createEpisode({ title, scheduled_date }) {
     notes: '',
     script: null,
     audio: null,
+    titleCustom: false,
+    titleSuggestions: [],
     newsIds: [],
     newsNotes: {},
     published_at: null,
@@ -167,6 +169,10 @@ export function setEpisodeScript(episodeId, script) {
 
 export function setEpisodeAudio(episodeId, audio) {
   commit((s) => patchEpisode(s, episodeId, { audio }))
+}
+
+export function setTitleSuggestions(episodeId, titleSuggestions) {
+  commit((s) => patchEpisode(s, episodeId, { titleSuggestions }))
 }
 
 // ── 新闻池 ──

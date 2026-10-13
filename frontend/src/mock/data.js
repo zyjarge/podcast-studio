@@ -248,6 +248,8 @@ export const MOCK_EPISODES = [
     notes: '本期重点聊 DeepSeek V4 的降价冲击，语气可以犀利一点，多给创业者视角。',
     script: SAMPLE_TRANSCRIPT,
     audio: null,
+    titleCustom: false,
+    titleSuggestions: [],
     newsIds: ['n08', 'n02', 'n09', 'n01'],
     newsNotes: {
       n08: '重点展开：价格战的连锁反应，可以对比小米 1999 的历史时刻。',
@@ -264,6 +266,8 @@ export const MOCK_EPISODES = [
     notes: '',
     script: null,
     audio: null,
+    titleCustom: false,
+    titleSuggestions: [],
     newsIds: [],
     newsNotes: {},
     published_at: null,

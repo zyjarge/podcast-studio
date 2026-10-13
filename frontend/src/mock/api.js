@@ -86,6 +86,34 @@ export async function mockGenerateScript(newsItems, onStage) {
   return parts.join('\n\n')
 }
 
+// ── 标题生成 ──
+
+/** 标题风格模板：用素材关键词拼装，让候选"看起来懂内容" */
+const TITLE_STYLES = [
+  { style: '观点型', make: (a, b) => `别再只盯着${a}了，真正变天的是${b}` },
+  { style: '悬念型', make: (a, b) => `${a}狂飙背后，谁在为${b}买单？` },
+  { style: '盘点型', make: (a, b) => `本期焦点：${a}、${b}，和一条被低估的新闻` },
+  { style: '热点型', make: (a) => `${a}刷屏，这次真的不一样？` },
+  { style: '对撞型', make: (a, b) => `${a}对决${b}：风口还是泡沫？` },
+]
+
+/** 基于节目素材生成 3 条标题候选（约 1.5–2.5 秒），返回 [{ text, style }] */
+export async function mockGenerateTitles(newsItems) {
+  await delay(rand(1500, 2500))
+  const keywords = [...new Set(newsItems.flatMap((n) => n.keywords || []))]
+  const pick = () => keywords.splice(rand(0, keywords.length), 1)[0]
+  const fallback = ['本周科技圈最值得聊的三件事', '风口之上，先别急着下单', '这些新闻里藏着明年的走向']
+  if (keywords.length < 2) {
+    return fallback.slice(0, 3).map((text, i) => ({ text, style: TITLE_STYLES[i].style }))
+  }
+  const styles = [...TITLE_STYLES].sort(() => Math.random() - 0.5).slice(0, 3)
+  return styles.map(({ style, make }) => {
+    const a = pick() || 'AI'
+    const b = pick() || '大模型'
+    return { text: make(a, b), style }
+  })
+}
+
 // ── 音频生成 ──
 
 /** 八阶段定义：key、文案、耗时区间、目标百分比（与 doc/UX_COPY.md 一致） */
