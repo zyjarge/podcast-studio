@@ -24,6 +24,8 @@ import {
   BadgeCheck,
   Sparkles,
   X,
+  Download,
+  Music,
 } from 'lucide-react'
 import {
   useStore,
@@ -39,6 +41,7 @@ import {
   setTitleSuggestions,
 } from '../mock/store'
 import { mockGenerateScript, mockGenerateAudio, mockGenerateTitles } from '../mock/api'
+import { buildEpisodeWav, downloadBlob, safeFilename } from '../mock/exporter'
 import { useToast } from '../components/Toast'
 import ConfirmDialog from '../components/ConfirmDialog'
 import CoverSection from '../components/CoverSection'
@@ -298,6 +301,7 @@ export default function EpisodeDetail() {
   const [audioGenerating, setAudioGenerating] = useState(false)
   const [audioProgress, setAudioProgress] = useState({ stage: '', label: '', percent: 0 })
   const [confirmDeleteAudio, setConfirmDeleteAudio] = useState(false)
+  const [exporting, setExporting] = useState(false)
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
 
@@ -419,6 +423,29 @@ export default function EpisodeDetail() {
     publishEpisode(id)
     toast.success('已发布 🎉')
   }
+
+  // 导出音频：正式版直接下载后端 MP3；原型在浏览器合成 WAV 样片
+  const handleExport = async () => {
+    if (!episode.audio || exporting) return
+    setExporting(true)
+    try {
+      await new Promise((r) => setTimeout(r, 300))
+      const blob = buildEpisodeWav(episode.script, episode.audio.duration)
+      downloadBlob(blob, `${safeFilename(episode.title)}.wav`)
+      toast.success('已开始下载')
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const formatDuration = (sec) => {
+    const m = Math.floor((sec || 0) / 60)
+    const s = Math.round((sec || 0) % 60)
+    return `${m}:${String(s).padStart(2, '0')}`
+  }
+
+  // MP3 128kbps ≈ 0.96 MB/分钟，用于导出卡片的大小预估
+  const estSizeMB = episode.audio ? Math.max(1, Math.round((episode.audio.duration * 0.016))) : 0
 
   const stagePill = (done, label) => (
     <span className="inline-flex items-center gap-1">
@@ -817,6 +844,33 @@ export default function EpisodeDetail() {
           ) : episode.audio ? (
             <div className="space-y-4">
               <FakePlayer duration={episode.audio.duration} />
+              {/* 导出卡片 */}
+              <div className="rounded-xl border border-cream-300 bg-cream-200 px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-accent-coral/15 flex items-center justify-center shrink-0">
+                    <Music className="w-4 h-4 text-accent-coral" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-ink-300 truncate">{safeFilename(episode.title)}.mp3</p>
+                    <p className="text-xs text-ink-50">
+                      {formatDuration(episode.audio.duration)} · 约 {estSizeMB} MB · MP3
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleExport}
+                    disabled={exporting}
+                    className="flex items-center gap-1.5 px-4 h-9 rounded-xl bg-ink-300 text-cream-100 text-sm font-medium hover:bg-ink-200 transition-colors disabled:opacity-50 shrink-0"
+                  >
+                    {exporting ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Download className="w-3.5 h-3.5" />
+                    )}
+                    {exporting ? '导出中…' : '导出音频'}
+                  </button>
+                </div>
+                <p className="text-xs text-ink-50 mt-2">可直接上传到公众号、小宇宙、喜马拉雅等平台</p>
+              </div>
               <div className="flex items-center gap-3">
                 {published ? (
                   <span className="inline-flex items-center gap-1.5 px-4 h-10 rounded-xl bg-accent-sage/15 text-accent-sage text-sm font-medium">
