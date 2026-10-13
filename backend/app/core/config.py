@@ -13,6 +13,11 @@ class Settings(BaseSettings):
     # MiniMax TTS
     MINIMAX_API_KEY: str = ""
 
+    # CORS allowed origins, comma separated. Default is the project's two
+    # dev frontends; production should set CORS_ALLOWED_ORIGINS to the
+    # real domain(s).
+    CORS_ALLOWED_ORIGINS: str = "http://localhost:3001,http://localhost:3000,http://127.0.0.1:3001,http://127.0.0.1:3000"
+
     class Config:
         env_file = ".env"
 
