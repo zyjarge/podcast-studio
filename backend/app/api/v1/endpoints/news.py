@@ -22,73 +22,46 @@ def get_news(news_id: int, db: Session = Depends(get_db)):
     return news
 
 
+_SORT_COLUMN = {
+    "created_at": News.created_at,
+    "updated_at": News.updated_at,
+    "score": News.score,
+}
+
+
 @router.get("/", response_model=List[NewsResponse])
 def list_news(
     source_id: int | None = None,
     limit: int = 100,
-    sort_by: str = "created_at",  # created_at, score, updated
+    sort_by: str = "created_at",  # created_at, score, updated_at
     order: str = "desc",
     min_score: float | None = Query(None, ge=0, le=100),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
-    获取新闻列表
-    
-    Args:
-        source_id: RSS 源 ID 筛选
-        limit: 返回数量
-        sort_by: 排序字段 (created_at, score, updated_at)
-        order: 排序方向 (asc, desc)
-        min_score: 最低评分筛选
+    获取新闻列表。纯读 GET,不带副作用。
+
+    Issue #12: 旧实现会在 GET 路径里给缺失评分的新闻打分数并 commit。
+    GET-as-POST 违反 REST/HTTP 语义,会让任何缓存层(CDN / browser
+    prefetch / HTTP accelerator)反复重放评分副作用,且 score_updated_at
+    会被频繁踩踏。打分请走 POST /news/score-all(已存在)。
+
+    sort_by / order 这块旧版有一串 if-ladder 把同一映射写了两遍
+    (order_col = ... 然后又把 query.order_by(...) 重写一遍),是死代码;
+    改成一个 _SORT_COLUMN 表直接 order_by。
     """
     query = db.query(News)
-    
-    # 筛选
+
     if source_id:
         query = query.filter(News.rss_source_id == source_id)
     if min_score is not None:
         query = query.filter(News.score >= min_score)
-    
-    # 排序
-    if sort_by == "score":
-        order_col = News.score if order == "desc" else News.score
-    elif sort_by == "updated_at":
-        order_col = News.updated_at if order == "desc" else News.updated_at.asc()
-    else:
-        order_col = News.created_at if order == "desc" else News.created_at.asc()
-    
-    # 如果是升序，需要特殊处理
-    if order == "asc":
-        if sort_by == "score":
-            query = query.order_by(News.score.asc())
-        elif sort_by == "updated_at":
-            query = query.order_by(News.updated_at.asc())
-        else:
-            query = query.order_by(News.created_at.asc())
-    else:
-        if sort_by == "score":
-            query = query.order_by(News.score.desc())
-        elif sort_by == "updated_at":
-            query = query.order_by(News.updated_at.desc())
-        else:
-            query = query.order_by(News.created_at.desc())
-    
+
+    col = _SORT_COLUMN.get(sort_by, News.created_at)
+    query = query.order_by(col.desc() if order == "desc" else col.asc())
+
     news_list = query.limit(limit).all()
-    
-    # 为没有评分的新闻计算评分
-    scorer = NewsScorer(db)
-    for news in news_list:
-        if news.score is None or news.score == 0:
-            scores = scorer.score_news(news)
-            news.score = scores["score"]
-            news.score_authority = scores["score_authority"]
-            news.score_timeliness = scores["score_timeliness"]
-            news.score_depth = scores["score_depth"]
-            news.score_updated_at = scores["score_updated_at"]
-    
-    # 如果有无评分的，提交保存
-    db.commit()
-    
+
     return news_list
 
 
