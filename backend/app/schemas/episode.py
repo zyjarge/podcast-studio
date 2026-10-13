@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 from enum import Enum
 
@@ -22,6 +22,12 @@ class EpisodeCreate(EpisodeBase):
 
 
 class EpisodeUpdate(BaseModel):
+    # Issue #22: forbid unknown fields at the schema boundary so mass-
+    # assignment becomes an explicit 422 from FastAPI's validation
+    # layer instead of a silent no-op. Belt: this. Suspenders: the
+    # explicit whitelist in update_episode itself.
+    model_config = ConfigDict(extra="forbid")
+
     title: str | None = None
     status: EpisodeStatus | None = None
     intro_template: str | None = None
