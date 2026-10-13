@@ -9,6 +9,8 @@ from typing import List, Optional
 from pydantic import BaseModel
 import asyncio
 import logging
+import os
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -879,7 +881,12 @@ async def inject_test_script(episode_id: int, db: Session = Depends(get_db)):
 def delete_episode_audio(episode_id: int, db: Session = Depends(get_db)):
     """
     Delete generated audio for an episode.
-    Removes the audio file from disk and clears audio_url in database.
+
+    Issue #4 hardening: audio_url is a free-form string column that any
+    caller can write into via update_episode. We do NOT trust it as a path.
+    We canonicalise it, then refuse to touch anything that escapes the
+    configured audio root. We also drop the sibling splits/ directory
+    only when it is itself inside that root.
     """
     episode = db.query(Episode).filter(Episode.id == episode_id).first()
     if not episode:
@@ -888,19 +895,42 @@ def delete_episode_audio(episode_id: int, db: Session = Depends(get_db)):
     if not episode.audio_url:
         raise HTTPException(status_code=400, detail="No audio to delete")
 
-    # Delete file from disk
-    audio_path = episode.audio_url
-    deleted_files = []
-    if os.path.exists(audio_path):
-        os.remove(audio_path)
-        deleted_files.append(audio_path)
+    # Resolve audio root once. Pin against the backend runtime cwd, same
+    # convention as serve_audio in app/main.py.
+    audio_root = (Path(os.getcwd()) / "data" / "audio").resolve()
 
-    # Also delete splits directory
-    splits_dir = os.path.join(os.path.dirname(audio_path), "splits")
-    if os.path.exists(splits_dir):
+    audio_path = Path(str(episode.audio_url)).resolve()
+    try:
+        audio_path.relative_to(audio_root)
+    except ValueError:
+        logger.warning(
+            "Refusing delete_episode_audio: %s escapes audio root %s "
+            "(likely tampered audio_url)",
+            audio_path, audio_root,
+        )
+        raise HTTPException(status_code=400, detail="invalid audio_url")
+
+    # Splits live in <episode_id>/splits/ — walk one directory up and
+    # verify it stays inside audio_root before rmtree-ing.
+    splits_dir = (audio_path.parent / "splits").resolve()
+    try:
+        splits_dir.relative_to(audio_root)
+    except ValueError:
+        logger.warning(
+            "Refusing to rmtree splits dir %s outside audio root %s",
+            splits_dir, audio_root,
+        )
+        splits_dir = None
+
+    deleted_files = []
+    if audio_path.is_file():
+        os.remove(str(audio_path))
+        deleted_files.append(str(audio_path))
+
+    if splits_dir and splits_dir.is_dir():
         import shutil
-        shutil.rmtree(splits_dir, ignore_errors=True)
-        deleted_files.append(splits_dir)
+        shutil.rmtree(str(splits_dir), ignore_errors=True)
+        deleted_files.append(str(splits_dir))
 
     # Clear audio_url in database
     episode.audio_url = ""
