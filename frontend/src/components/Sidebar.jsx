@@ -1,28 +1,14 @@
 import { NavLink, useLocation } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import {
-  LayoutDashboard,
-  Newspaper,
-  FileText,
-  Volume2,
-  Layers,
-  Settings,
-  Mic,
-  Zap,
-  Sparkles,
-  Radio,
-  Plus,
-  List
-} from 'lucide-react'
+import { CalendarDays, Newspaper, Settings, Radio } from 'lucide-react'
 
 const navItems = [
-  { path: '/', icon: List, label: '节目列表' },
+  { path: '/', icon: CalendarDays, label: '节目' },
   { path: '/news-pool', icon: Newspaper, label: '新闻池' },
 ]
 
-export default function Sidebar({ currentMode, setCurrentMode }) {
+export default function Sidebar() {
   const location = useLocation()
-  const isEpisodePage = location.pathname.startsWith('/episode/')
 
   return (
     <aside className="fixed left-0 top-0 h-screen w-64 bg-cream-200 border-r border-cream-400 flex flex-col">
@@ -41,41 +27,14 @@ export default function Sidebar({ currentMode, setCurrentMode }) {
         </div>
       </div>
 
-      {/* 模式切换 */}
-      {isEpisodePage && (
-        <div className="p-4 border-b border-cream-400">
-          <div className="bg-cream-300 rounded-xl p-1 flex">
-            <button
-              onClick={() => setCurrentMode('refine')}
-              className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all duration-300 flex items-center justify-center gap-2 ${
-                currentMode === 'refine'
-                  ? 'bg-cream-100 shadow-sm text-ink-300'
-                  : 'text-ink-50 hover:text-ink-300'
-              }`}
-            >
-              <Sparkles className="w-4 h-4" />
-              精编模式
-            </button>
-            <button
-              onClick={() => setCurrentMode('auto')}
-              className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all duration-300 flex items-center justify-center gap-2 ${
-                currentMode === 'auto'
-                  ? 'bg-cream-100 shadow-sm text-ink-300'
-                  : 'text-ink-50 hover:text-ink-300'
-              }`}
-            >
-              <Zap className="w-4 h-4" />
-              自动模式
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* 导航 */}
       <nav className="flex-1 p-4 overflow-y-auto">
         <ul className="space-y-1">
           {navItems.map((item) => {
-            const isActive = location.pathname === item.path
+            const isActive =
+              item.path === '/'
+                ? location.pathname === '/' || location.pathname.startsWith('/episode/')
+                : location.pathname === item.path
             const Icon = item.icon
 
             return (
@@ -83,9 +42,7 @@ export default function Sidebar({ currentMode, setCurrentMode }) {
                 <NavLink
                   to={item.path}
                   className={`block relative px-4 py-3 rounded-xl transition-all duration-200 group ${
-                    isActive
-                      ? 'bg-cream-100 shadow-sm'
-                      : 'hover:bg-cream-300'
+                    isActive ? 'bg-cream-100 shadow-sm' : 'hover:bg-cream-300'
                   }`}
                 >
                   {isActive && (
@@ -116,14 +73,28 @@ export default function Sidebar({ currentMode, setCurrentMode }) {
         </ul>
       </nav>
 
-      {/* 底部信息 */}
+      {/* 底部：设置 */}
       <div className="p-4 border-t border-cream-400">
         <NavLink
           to="/settings"
-          className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-cream-300 transition-colors"
+          className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${
+            location.pathname === '/settings'
+              ? 'bg-cream-100 shadow-sm'
+              : 'hover:bg-cream-300'
+          }`}
         >
-          <Settings className="w-5 h-5 text-ink-50" />
-          <span className="font-medium text-ink-50">设置</span>
+          <Settings
+            className={`w-5 h-5 ${
+              location.pathname === '/settings' ? 'text-accent-coral' : 'text-ink-50'
+            }`}
+          />
+          <span
+            className={`font-medium ${
+              location.pathname === '/settings' ? 'text-ink-300' : 'text-ink-50'
+            }`}
+          >
+            设置
+          </span>
         </NavLink>
       </div>
     </aside>
