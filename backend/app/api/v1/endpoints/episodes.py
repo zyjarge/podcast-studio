@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Body, BackgroundTasks
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import func
 from app.db.session import get_db
 from app.db.models import Episode, EpisodeNews, News, NewsStatus
 from app.schemas.episode import EpisodeCreate, EpisodeUpdate, EpisodeResponse
@@ -186,7 +187,15 @@ def add_news_to_episode(episode_id: int, news_ids: List[int], db: Session = Depe
     if not episode:
         raise HTTPException(status_code=404, detail="Episode not found")
 
-    max_order = db.query(EpisodeNews).filter(EpisodeNews.episode_id == episode_id).count()
+    # Issue #19: previous code used .count() which after a soft_delete or
+    # hard delete no longer equals max(order). New items could land in the
+    # visual gap left by the deleted items. Use the actual max(order)+1
+    # so inserts always extend the end.
+    max_order = (
+        db.query(func.coalesce(func.max(EpisodeNews.order), -1))
+        .filter(EpisodeNews.episode_id == episode_id)
+        .scalar()
+    )
 
     for i, news_id in enumerate(news_ids):
         existing = db.query(EpisodeNews).filter(
@@ -194,7 +203,7 @@ def add_news_to_episode(episode_id: int, news_ids: List[int], db: Session = Depe
             EpisodeNews.news_id == news_id
         ).first()
         if not existing:
-            en = EpisodeNews(episode_id=episode_id, news_id=news_id, order=max_order + i)
+            en = EpisodeNews(episode_id=episode_id, news_id=news_id, order=max_order + 1 + i)
             db.add(en)
 
     db.commit()
