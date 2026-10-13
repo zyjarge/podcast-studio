@@ -39,10 +39,41 @@ def get_episode(episode_id: int, db: Session = Depends(get_db)):
 
 @router.put("/{episode_id}", response_model=EpisodeResponse)
 def update_episode(episode_id: int, episode: EpisodeUpdate, db: Session = Depends(get_db)):
+    # Issue #22 belt-and-suspenders. Pydantic's default is to silently drop
+    # unknown fields (so audio_url / id / created_at submitted to this
+    # endpoint were already not reaching the ORM), but silent drops hide
+    # bugs and are fragile against future schema refactors. The schema
+    # now uses extra='forbid' so unknown fields become a 422 from
+    # FastAPI's validation layer; this whitelist on the endpoint side
+    # is the second line of defence so a future looser schema cannot
+    # reopen mass-assignment.
+    _EPISODE_UPDATE_WHITELIST = {
+        "title",
+        "status",
+        "intro_template",
+        "outro_template",
+        "script_prompt",
+        "script",
+        "scheduled_date",
+    }
+
     db_episode = db.query(Episode).filter(Episode.id == episode_id).first()
     if not db_episode:
         raise HTTPException(status_code=404, detail="Episode not found")
-    for key, value in episode.model_dump(exclude_unset=True).items():
+
+    supplied = episode.model_dump(exclude_unset=True)
+    rejected = sorted(set(supplied) - _EPISODE_UPDATE_WHITELIST)
+    if rejected:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"field(s) not editable: {', '.join(rejected)}. "
+                "Only the following Episode columns may be updated via this "
+                f"endpoint: {', '.join(sorted(_EPISODE_UPDATE_WHITELIST))}."
+            ),
+        )
+
+    for key, value in supplied.items():
         setattr(db_episode, key, value)
     db.commit()
     db.refresh(db_episode)
