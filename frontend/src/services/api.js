@@ -1,6 +1,8 @@
 // API service for Podcast Studio frontend
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8002/api/v1'
-const AUDIO_BASE = API_BASE.replace('/api/v1', '')
+// 使用相对路径,通过 Vite dev server 的 proxy 转发到后端
+// 这样无论从哪台机器访问都能正常工作
+const API_BASE = import.meta.env.VITE_API_BASE || '/api/v1'
+const AUDIO_BASE = ''  // 音频文件也走相对路径, vite proxy 会处理 /data 路径
 
 class ApiError extends Error {
   constructor(message, status) {
@@ -78,9 +80,13 @@ export const newsApi = {
     const query = queryParams.toString()
     return request(`/news/${query ? '?' + query : ''}`)
   },
-  fetch: (sourceId) => sourceId 
+  fetch: (sourceId) => sourceId
     ? request(`/news/fetch?source_id=${sourceId}`, { method: 'POST' })
     : request('/news/fetch', { method: 'POST' }),
+  // Issue #17: page-level wrapper that fetches every enabled RSS source.
+  // EpisodeDetail's "fetch latest" button called newsApi.fetchAll() which
+  // didn't exist - click did nothing and silently swallowed the error.
+  fetchAll: () => request('/news/fetch', { method: 'POST' }),
   scoreAll: (limit = 100) => request('/news/score-all?limit=' + limit, { method: 'POST' }),
 }
 
