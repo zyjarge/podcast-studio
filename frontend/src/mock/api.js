@@ -1,5 +1,6 @@
 // 模拟异步接口：全部本地定时器实现，绝不发起真实网络请求
 import { getState, addNewsItems, markFetched } from './store'
+import { pickCoverVariants } from './cover'
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 const rand = (min, max) => Math.floor(min + Math.random() * (max - min))
@@ -112,6 +113,14 @@ export async function mockGenerateTitles(newsItems) {
     const b = pick() || '大模型'
     return { text: make(a, b), style }
   })
+}
+
+// ── 题图生成 ──
+
+/** 生成题图：约 4–6 秒，返回 3 个风格变体参数 [{ paletteIdx, layout, label }] */
+export async function mockGenerateCovers() {
+  await delay(rand(4000, 6000))
+  return pickCoverVariants()
 }
 
 // ── 音频生成 ──

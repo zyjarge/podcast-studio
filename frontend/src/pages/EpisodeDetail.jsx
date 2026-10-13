@@ -41,6 +41,7 @@ import {
 import { mockGenerateScript, mockGenerateAudio, mockGenerateTitles } from '../mock/api'
 import { useToast } from '../components/Toast'
 import ConfirmDialog from '../components/ConfirmDialog'
+import CoverSection from '../components/CoverSection'
 import MaterialDrawer from '../components/MaterialDrawer'
 
 const countChars = (text) => (text || '').replace(/\s/g, '').length
@@ -856,6 +857,9 @@ export default function EpisodeDetail() {
             </div>
           )}
         </section>
+
+        {/* 题图 */}
+        <CoverSection episode={episode} episodeNews={episodeNews} />
       </div>
 
       {/* 选料抽屉 */}
