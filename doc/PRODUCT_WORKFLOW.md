@@ -1,7 +1,8 @@
 # Podcast Studio 产品应用场景与工作流
 
-> 版本: 1.0 | 更新日期: 2026-10-13
+> 版本: 1.1 | 更新日期: 2026-10-14
 > 本文基于当前代码实现梳理（frontend/ + backend/），与 `doc/DESIGN.md`（早期 PRD）存在差异处以本文为准；尚未实现的能力统一标注为「规划中」或「半成品」。
+> **1.1 更新**：新版 UI（原 `ux/mock-prototype` 原型）已在 `feat/ux-production` 分支接入真实后端——话题聚类选料、AI 标题建议、图文正文（Markdown + 排版长图）、题图、音频生成/导出/发布均为真实功能；后端新增 `generate-titles` / `generate-article` / `cluster-topics` 端点与 episodes 表 4 个新字段（notes/article/title_suggestions/cover_choice）。
 
 ---
 
