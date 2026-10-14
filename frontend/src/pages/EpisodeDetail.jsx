@@ -647,8 +647,10 @@ export default function EpisodeDetail() {
         </div>
       </div>
 
-      {/* ── 右栏：工作区 ── */}
-      <div className="flex-1 min-w-0 p-8 space-y-5 max-w-4xl">
+      {/* ── 右栏：工作区（宽屏时分为 内容列 | 产出列 两列） ── */}
+      <div className="flex-1 min-w-0 p-6">
+        <div className="mx-auto w-full max-w-[1440px] grid grid-cols-1 min-[1600px]:grid-cols-[minmax(0,1fr)_400px] gap-5 items-start">
+          <div className="space-y-5 min-w-0">
         {/* 节目备注 */}
         <section className="bg-cream-100 rounded-2xl border border-cream-300 shadow-[0_1px_3px_rgba(45,42,36,0.06)] overflow-hidden">
           <button
@@ -806,7 +808,10 @@ export default function EpisodeDetail() {
             </div>
           )}
         </section>
+          </div>
 
+          {/* 产出列：音频 + 题图（≥1600px 宽屏时固定右栏 sticky） */}
+          <div className="space-y-5 min-w-0 self-start w-full min-[1600px]:sticky min-[1600px]:top-6">
         {/* 音频 */}
         <section className="bg-cream-100 rounded-2xl border border-cream-300 shadow-[0_1px_3px_rgba(45,42,36,0.06)] p-5">
           <div className="flex items-center justify-between mb-4">
@@ -914,6 +919,8 @@ export default function EpisodeDetail() {
 
         {/* 题图 */}
         <CoverSection episode={episode} episodeNews={episodeNews} />
+          </div>
+        </div>
       </div>
 
       {/* 选料抽屉 */}
