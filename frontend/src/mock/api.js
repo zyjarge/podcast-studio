@@ -123,6 +123,56 @@ export async function mockGenerateCovers() {
   return pickCoverVariants()
 }
 
+// ── 图文正文生成 ──
+
+const ARTICLE_QUOTES = [
+  '技术的进步从不等待犹豫者，但盲目追风的人也走不远。',
+  '看懂趋势的人，已经在悄悄布局；看懂泡沫的人，懂得什么时候下车。',
+  '所有喧嚣的热点，最终都要接受价值的检验。',
+  '风口年年有，能落地的才叫产业。',
+]
+
+const ARTICLE_COMMENTS = [
+  '一句话总结：这件事的看点不在表面数字，而在它背后的产业节奏。',
+  '值得留意的是，这不是孤立事件，而是一条清晰的演进路线的最新一站。',
+  '表面是新闻，里子是格局——接下来半年，这条线的连锁反应值得持续跟踪。',
+  '热闹之外，真正决定走向的是供给端的结构性变化。',
+]
+
+/** 基于节目素材生成公众号图文正文（Markdown，约 6–8 秒，分阶段回调） */
+export async function mockGenerateArticle(newsItems, onStage) {
+  onStage?.('正在提炼素材要点…')
+  await delay(rand(2200, 3000))
+  onStage?.('正在撰写正文…')
+  await delay(rand(3200, 4200))
+
+  const items = newsItems.slice(0, 5)
+  const kws = [...new Set(items.flatMap((n) => n.keywords || []))]
+  const headline = `今日焦点：${kws.slice(0, 2).join('、') || '科技前沿'}，与一条被低估的新闻`
+  const lead = `今天的新闻池信息量不小。我们从 ${items.length} 条最值得关注的动态里，理出热闹背后的门道——看点不只是"发生了什么"，更是"接下来会怎样"。`
+
+  const parts = [`# ${headline}`, '', lead, '']
+  items.forEach((n, i) => {
+    parts.push(`### ${n.title}`)
+    parts.push('')
+    parts.push(`${n.summary.replace(/。$/, '')}。${n.content.slice(0, 110)}……`)
+    parts.push('')
+    parts.push(ARTICLE_COMMENTS[i % ARTICLE_COMMENTS.length])
+    parts.push('')
+    if (i === 1 && items.length > 2) {
+      parts.push(`> ${ARTICLE_QUOTES[rand(0, ARTICLE_QUOTES.length)]}`)
+      parts.push('')
+    }
+  })
+  parts.push('### 写在最后')
+  parts.push('')
+  parts.push(`以上就是今天的焦点梳理。新闻每天都在刷新，但判断力的积累需要时间——希望今天的解读，能帮你把信息变成自己的判断。`)
+  parts.push('')
+  parts.push('---')
+  parts.push('*科技双响炮 · 焦点早知道 | 本文由 AI 辅助生成，发布前请人工复核*')
+  return parts.join('\n')
+}
+
 // ── 音频生成 ──
 
 /** 八阶段定义：key、文案、耗时区间、目标百分比（与 doc/UX_COPY.md 一致） */

@@ -128,15 +128,13 @@ export function pickCoverVariants() {
   }))
 }
 
-/** SVG → PNG 下载（2x 清晰度） */
-export function downloadCoverPng(svg, ratioKey, filename = 'cover.png') {
-  const ratio = COVER_RATIOS.find((r) => r.key === ratioKey) || COVER_RATIOS[0]
+/** 通用：SVG → PNG 下载 */
+export function downloadSvgPng(svg, width, height, filename = 'image.png', scale = 2) {
   const img = new Image()
   img.onload = () => {
-    const scale = 2
     const canvas = document.createElement('canvas')
-    canvas.width = ratio.w * scale
-    canvas.height = ratio.h * scale
+    canvas.width = Math.round(width * scale)
+    canvas.height = Math.round(height * scale)
     const ctx = canvas.getContext('2d')
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
     canvas.toBlob((blob) => {
@@ -150,4 +148,10 @@ export function downloadCoverPng(svg, ratioKey, filename = 'cover.png') {
     }, 'image/png')
   }
   img.src = coverDataUri(svg)
+}
+
+/** SVG → PNG 下载（2x 清晰度） */
+export function downloadCoverPng(svg, ratioKey, filename = 'cover.png') {
+  const ratio = COVER_RATIOS.find((r) => r.key === ratioKey) || COVER_RATIOS[0]
+  downloadSvgPng(svg, ratio.w, ratio.h, filename, 2)
 }

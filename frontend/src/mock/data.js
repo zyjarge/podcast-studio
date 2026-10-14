@@ -238,6 +238,37 @@ export const SAMPLE_TRANSCRIPT = `**彪悍罗：** 各位好，欢迎收听科�
 const today = new Date()
 const titleOf = (d) => `科技双响炮 · ${d.getMonth() + 1}月${d.getDate()}日`
 
+const SAMPLE_ARTICLE = `# 今日焦点：DeepSeek、AI 芯片，与一条被低估的新闻
+
+今天的新闻池信息量不小。我们从 4 条最值得关注的动态里，理出热闹背后的门道——看点不只是"发生了什么"，更是"接下来会怎样"。
+
+### DeepSeek 发布 V4 模型，数学与代码能力大幅领先开源阵营
+
+DeepSeek 凌晨发布 V4 系列模型，在 AIME 数学竞赛题集上正确率达到 94%，SWE-bench 代码任务超过一众闭源模型，同时 API 价格再降一半，模型权重同步开源。凌晨上线的版本在多项基准上直接对标一线闭源旗舰……
+
+一句话总结：这件事的看点不在表面数字，而在它背后的产业节奏。
+
+### 英伟达发布新一代 AI 芯片 B300，推理性能提升两倍
+
+英伟达正式发布新一代数据中心芯片 B300，主打推理场景。官方数据显示，B300 在大模型推理负载下的单卡性能达到上代 B200 的三倍，能效比提升 2.5 倍，支持更大规模的片上显存池化……
+
+值得留意的是，这不是孤立事件，而是一条清晰的演进路线的最新一站。
+
+> 技术的进步从不等待犹豫者，但盲目追风的人也走不远。
+
+### 月之暗面完成新一轮 15 亿美元融资，估值站上 180 亿美元
+
+月之暗面宣布完成新一轮 15 亿美元融资，投后估值站上 180 亿美元，由多家一线基金联合领投。本轮资金主要投向推理算力储备与下一代模型研发……
+
+表面是新闻，里子是格局——接下来半年，这条线的连锁反应值得持续跟踪。
+
+### 写在最后
+
+以上就是今天的焦点梳理。新闻每天都在刷新，但判断力的积累需要时间——希望今天的解读，能帮你把信息变成自己的判断。
+
+---
+*科技双响炮 · 焦点早知道 | 本文由 AI 辅助生成，发布前请人工复核*`
+
 export const MOCK_EPISODES = [
   {
     id: 'ep-demo-1',
@@ -253,6 +284,8 @@ export const MOCK_EPISODES = [
     coverVariants: [],
     cover: null,
     coverRatio: 'mp',
+    article: SAMPLE_ARTICLE,
+    articleTemplate: 'magazine',
     newsIds: ['n08', 'n02', 'n09', 'n01'],
     newsNotes: {
       n08: '重点展开：价格战的连锁反应，可以对比小米 1999 的历史时刻。',
@@ -274,6 +307,8 @@ export const MOCK_EPISODES = [
     coverVariants: [],
     cover: null,
     coverRatio: 'mp',
+    article: null,
+    articleTemplate: 'magazine',
     newsIds: [],
     newsNotes: {},
     published_at: null,

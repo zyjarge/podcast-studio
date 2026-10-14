@@ -91,6 +91,8 @@ export function createEpisode({ title, scheduled_date }) {
     coverVariants: [],
     cover: null,
     coverRatio: 'mp',
+    article: null,
+    articleTemplate: 'magazine',
     newsIds: [],
     newsNotes: {},
     published_at: null,

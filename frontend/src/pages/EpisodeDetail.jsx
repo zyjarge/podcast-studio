@@ -26,6 +26,7 @@ import {
   X,
   Download,
   Music,
+  PenLine,
 } from 'lucide-react'
 import {
   useStore,
@@ -45,6 +46,7 @@ import { buildEpisodeWav, downloadBlob, safeFilename } from '../mock/exporter'
 import { useToast } from '../components/Toast'
 import ConfirmDialog from '../components/ConfirmDialog'
 import CoverSection from '../components/CoverSection'
+import ArticlePanel from '../components/ArticlePanel'
 import MaterialDrawer from '../components/MaterialDrawer'
 
 const countChars = (text) => (text || '').replace(/\s/g, '').length
@@ -296,6 +298,10 @@ export default function EpisodeDetail() {
   const [scriptEditing, setScriptEditing] = useState(false)
   const [scriptDraft, setScriptDraft] = useState('')
   const [confirmRegen, setConfirmRegen] = useState(false)
+
+  // 内容 tab：逐字稿 | 图文正文
+  const [contentTab, setContentTab] = useState('script')
+  const [articleGenerating, setArticleGenerating] = useState(false)
 
   // 音频
   const [audioGenerating, setAudioGenerating] = useState(false)
@@ -690,45 +696,76 @@ export default function EpisodeDetail() {
           </AnimatePresence>
         </section>
 
-        {/* 逐字稿 */}
+        {/* 内容区：逐字稿 / 图文正文 */}
         <section className="bg-cream-100 rounded-2xl border border-cream-300 shadow-[0_1px_3px_rgba(45,42,36,0.06)] p-5">
           <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <FileText className="w-4 h-4 text-accent-sky" />
-              <h2 className="text-base font-semibold text-ink-300">逐字稿</h2>
-              {episode.script && !scriptGenerating && (
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1 bg-cream-200 border border-cream-300 rounded-xl p-1">
+                <button
+                  onClick={() => setContentTab('script')}
+                  className={`flex items-center gap-1.5 px-3 h-8 rounded-lg text-sm font-medium transition-colors ${
+                    contentTab === 'script'
+                      ? 'bg-cream-100 text-ink-300 shadow-sm'
+                      : 'text-ink-50 hover:text-ink-300'
+                  }`}
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  逐字稿
+                </button>
+                <button
+                  onClick={() => setContentTab('article')}
+                  className={`flex items-center gap-1.5 px-3 h-8 rounded-lg text-sm font-medium transition-colors ${
+                    contentTab === 'article'
+                      ? 'bg-cream-100 text-ink-300 shadow-sm'
+                      : 'text-ink-50 hover:text-ink-300'
+                  }`}
+                >
+                  <PenLine className="w-3.5 h-3.5" />
+                  图文正文
+                  {articleGenerating && <Loader2 className="w-3.5 h-3.5 animate-spin text-accent-sky" />}
+                </button>
+              </div>
+              {contentTab === 'script' && episode.script && !scriptGenerating && (
                 <span className="text-xs text-ink-50">
                   约 {chars.toLocaleString('zh-CN')} 字 · 预计 {estMinutes} 分钟
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-2">
-              {episode.script && !scriptGenerating && (
-                <>
-                  <button
-                    onClick={() => {
-                      setScriptDraft(episode.script)
-                      setScriptEditing(true)
-                    }}
-                    className="flex items-center gap-1.5 px-3 h-9 rounded-xl bg-cream-200 border border-cream-300 text-sm text-ink-300 hover:bg-cream-300 transition-colors"
-                  >
-                    <Pencil className="w-3.5 h-3.5" />
-                    编辑
-                  </button>
-                  <button
-                    onClick={() => setConfirmRegen(true)}
-                    disabled={episodeNews.length === 0}
-                    className="flex items-center gap-1.5 px-3 h-9 rounded-xl bg-cream-200 border border-cream-300 text-sm text-ink-300 hover:bg-cream-300 transition-colors disabled:opacity-50"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                    重新生成
-                  </button>
-                </>
-              )}
-            </div>
+            {contentTab === 'script' && (
+              <div className="flex items-center gap-2">
+                {episode.script && !scriptGenerating && (
+                  <>
+                    <button
+                      onClick={() => {
+                        setScriptDraft(episode.script)
+                        setScriptEditing(true)
+                      }}
+                      className="flex items-center gap-1.5 px-3 h-9 rounded-xl bg-cream-200 border border-cream-300 text-sm text-ink-300 hover:bg-cream-300 transition-colors"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                      编辑
+                    </button>
+                    <button
+                      onClick={() => setConfirmRegen(true)}
+                      disabled={episodeNews.length === 0}
+                      className="flex items-center gap-1.5 px-3 h-9 rounded-xl bg-cream-200 border border-cream-300 text-sm text-ink-300 hover:bg-cream-300 transition-colors disabled:opacity-50"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      重新生成
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
-          {scriptGenerating ? (
+          {contentTab === 'article' ? (
+            <ArticlePanel
+              episode={episode}
+              episodeNews={episodeNews}
+              onGeneratingChange={setArticleGenerating}
+            />
+          ) : scriptGenerating ? (
             <div>
               <div className="flex items-center gap-2 mb-4 text-sm text-accent-sky">
                 <Loader2 className="w-4 h-4 animate-spin" />
