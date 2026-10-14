@@ -27,6 +27,7 @@ import {
   Download,
   Music,
   PenLine,
+  Layers,
 } from 'lucide-react'
 import {
   useStore,
@@ -40,8 +41,9 @@ import {
   setEpisodeAudio,
   publishEpisode,
   setTitleSuggestions,
+  setTopics,
 } from '../mock/store'
-import { mockGenerateScript, mockGenerateAudio, mockGenerateTitles } from '../mock/api'
+import { mockGenerateScript, mockGenerateAudio, mockGenerateTitles, mockClusterTopics } from '../mock/api'
 import { buildEpisodeWav, downloadBlob, safeFilename } from '../mock/exporter'
 import { useToast } from '../components/Toast'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -244,7 +246,7 @@ export default function EpisodeDetail() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const toast = useToast()
-  const { episodes, news } = useStore()
+  const { episodes, news, topics } = useStore()
 
   const episode = episodes.find((e) => e.id === id)
   const episodeNews = useMemo(() => {
@@ -295,6 +297,7 @@ export default function EpisodeDetail() {
   // 逐字稿
   const [scriptGenerating, setScriptGenerating] = useState(false)
   const [scriptStage, setScriptStage] = useState('')
+  const [scriptOutline, setScriptOutline] = useState([])
   const [scriptEditing, setScriptEditing] = useState(false)
   const [scriptDraft, setScriptDraft] = useState('')
   const [confirmRegen, setConfirmRegen] = useState(false)
@@ -400,9 +403,17 @@ export default function EpisodeDetail() {
     setConfirmRegen(false)
     setScriptGenerating(true)
     setScriptStage('正在阅读素材…')
+    setScriptOutline([])
     setScriptEditing(false)
     try {
-      const script = await mockGenerateScript(episodeNews, setScriptStage)
+      const script = await mockGenerateScript(
+        episodeNews,
+        (stage, outline) => {
+          setScriptStage(stage)
+          if (outline) setScriptOutline(outline)
+        },
+        topics
+      )
       setEpisodeScript(id, script)
       toast.success(`逐字稿已生成，共 ${countChars(script).toLocaleString('zh-CN')} 字`)
       // 标题建议随稿产出（不阻塞主流程）
@@ -410,6 +421,33 @@ export default function EpisodeDetail() {
     } finally {
       setScriptGenerating(false)
       setScriptStage('')
+      setScriptOutline([])
+    }
+  }
+
+  // 按话题整理素材顺序：同话题新闻排成相邻，生成时集中讨论
+  const [arranging, setArranging] = useState(false)
+  const arrangeByTopics = async () => {
+    setArranging(true)
+    try {
+      let tps = topics
+      if (!tps || tps.length === 0) {
+        tps = await mockClusterTopics()
+        setTopics(tps)
+      }
+      const next = []
+      tps.forEach((t) =>
+        t.newsIds.forEach((nid) => {
+          if (episode.newsIds.includes(nid) && !next.includes(nid)) next.push(nid)
+        })
+      )
+      episode.newsIds.forEach((nid) => {
+        if (!next.includes(nid)) next.push(nid)
+      })
+      reorderEpisodeNews(id, next)
+      toast.success('已按话题整理顺序')
+    } finally {
+      setArranging(false)
     }
   }
 
@@ -644,6 +682,21 @@ export default function EpisodeDetail() {
             <span className="text-cream-400">·</span>
             {stagePill(Boolean(episode.audio), '音频')}
           </div>
+          {/* 按话题整理：同话题新闻排成相邻，生成时集中讨论 */}
+          {episodeNews.length >= 2 && (
+            <button
+              onClick={arrangeByTopics}
+              disabled={arranging}
+              className="mt-2 w-full flex items-center justify-center gap-1.5 h-8 rounded-xl border border-dashed border-cream-400 text-xs text-ink-50 hover:text-ink-300 hover:border-cream-500 hover:bg-cream-200 transition-colors disabled:opacity-50"
+            >
+              {arranging ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Layers className="w-3.5 h-3.5" />
+              )}
+              按话题整理顺序
+            </button>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
@@ -773,6 +826,21 @@ export default function EpisodeDetail() {
                 <span>{scriptStage}</span>
                 <span className="text-xs text-ink-50">生成中…（约 30 秒）</span>
               </div>
+              {/* 板块规划预览：同话题新闻集中讨论，超出 4 个板块的话题入速览 */}
+              {scriptOutline.length > 0 && (
+                <div className="mb-4 rounded-xl bg-cream-200 border border-cream-300 px-4 py-3">
+                  <p className="text-xs font-medium text-ink-300 mb-1.5">本期板块规划</p>
+                  <ol className="text-xs text-ink-50 space-y-1">
+                    {scriptOutline.map((o, i) => (
+                      <li key={i}>
+                        <span className="text-accent-coral mr-1.5">{String(i + 1).padStart(2, '0')}</span>
+                        {o.name}
+                        <span className="text-ink-50/70">（{o.count} 条报道）</span>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
               <div className="space-y-3">
                 {[92, 100, 78, 96, 60, 88].map((w, i) => (
                   <div key={i} className="h-4 rounded-lg progress-shimmer" style={{ width: `${w}%` }} />
