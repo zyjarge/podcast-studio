@@ -90,50 +90,17 @@ export async function mockVerifyKeys() {
   return { deepseek: 'ok', minimax: 'ok' }
 }
 
-// ── 逐字稿生成（板块化：同话题集中讨论 + 板块过渡 + 引申段 + 速览收尾） ──
+// ── 逐字稿生成 ──
 
 const OPENERS = [
-  '**彪悍罗：** 各位好，欢迎收听科技双响炮，我是彪悍罗。',
-  '**OK王：** 我是 OK 王。今天我们聊点硬的。',
+  '各位好，欢迎收听科技双响炮，我是彪悍罗。',
+  '我是 OK 王。今天我们聊点硬的。',
 ]
 
 const CLOSERS = [
-  '**彪悍罗：** 好，今天的双响炮就到这里。记住：看热闹更要看门道。我是彪悍罗。',
-  '**OK王：** 我是 OK 王，明天见。',
+  '好，今天的双响炮就到这里。记住：看热闹更要看门道。我是彪悍罗。',
+  '我是 OK 王，明天见。',
 ]
-
-const TRANSITIONS = [
-  '好，这个话题先聊到这。咱们换个方向——',
-  '行，这事捋清楚了。接下来这条线也很有意思——',
-  '这个板块收个尾。下面这个话题，跟刚才的其实暗暗相关——',
-]
-
-// 引申段：明示"是我们的联想"，不编造素材之外的事实
-const SEGMENT_EXT = [
-  {
-    luo: '插一句题外话。这事儿让我想到更大的盘子：技术的竞争从来不只是技术，背后是产业链、资本、甚至政策的全面较劲。',
-    wang: '对，说明一下，这是我们基于公开信息的联想，不构成投资建议。但这个角度有价值——单点新闻要放进结构里看。',
-  },
-  {
-    luo: '顺着这个思路往外走一层：当一个赛道的玩家扎堆在同一时间发声，说明窗口期在收窄，大家都急了。',
-    wang: '补充一句，这只是我们的推演。不过从产业节奏看，密集发布通常预示商业化拐点临近，这个判断留给时间检验。',
-  },
-]
-
-/** 把节目素材按话题分组（保持话题原有排序，未入话题的各自成组） */
-function groupByTopics(newsItems, topics) {
-  const groups = []
-  const assigned = new Set()
-  ;(topics || []).forEach((t) => {
-    const members = newsItems.filter((n) => t.newsIds.includes(n.id))
-    if (members.length > 0) {
-      groups.push({ title: t.title, members })
-      members.forEach((m) => assigned.add(m.id))
-    }
-  })
-  newsItems.filter((n) => !assigned.has(n.id)).forEach((n) => groups.push({ title: null, members: [n] }))
-  return groups
-}
 
 function buildDialogueForNews(news, index) {
   const seg = rand(0, 1)
@@ -163,55 +130,17 @@ function buildDialogueForNews(news, index) {
   ]
 }
 
-/** 多报道板块：同话题新闻合并讨论、互相印证 */
-function buildSegmentDialogue(group, segIdx) {
-  const { title, members } = group
-  if (members.length === 1) return buildDialogueForNews(members[0], segIdx)
-  return [
-    `**彪悍罗：** ${segIdx === 0 ? '今天第一个板块' : '下一个板块'}，聊「${title}」。这事儿今天不止一家在动：${members.map((m) => m.title).join('；')}。放一起看，味道就不一样了。`,
-    `**OK王：** 对，单条看是新闻，连起来看是趋势。${members[0].content.slice(0, 55)}……而另一边，${members[1].summary.replace(/。$/, '')}。两条报道互相印证，说明这不是偶然动作。`,
-    `**彪悍罗：** 我就说嘛，${members[0].summary.replace(/。$/, '')}——一条是巧合，一天之内 ${members.length} 条撞在一起，那就是信号。`,
-    `**OK王：** 收一下这个板块的要点：事实层面，${members.length} 条报道指向同一个方向；预期层面，市场已经开始定价；操作层面，看清底层逻辑再行动。`,
-  ]
-}
-
-/**
- * 基于节目素材生成逐字稿（板块化，约 7–9 秒）
- * onStage(阶段文案, 本期大纲) —— 大纲 = [{ name, count }]
- */
-export async function mockGenerateScript(newsItems, onStage, topics = []) {
-  // 第一阶段：规划板块（大纲通过回调同步给 UI 预览）
-  const groups = groupByTopics(newsItems, topics)
-  const outline = groups.map((g, i) => ({
-    name: g.title || g.members[0].keywords?.[0] || `话题 ${i + 1}`,
-    count: g.members.length,
-  }))
-  onStage?.('正在规划本期板块…', outline)
-  await delay(rand(1800, 2400))
-  onStage?.('正在撰写对话…', outline)
+/** 基于节目素材生成逐字稿文本（本地模板拼装，约 6–8 秒，分阶段回调） */
+export async function mockGenerateScript(newsItems, onStage) {
+  onStage?.('正在阅读素材…')
+  await delay(rand(2500, 3200))
+  onStage?.('正在撰写对话…')
   await delay(rand(3600, 4600))
 
-  const MAX_SEGMENTS = 4
-  const main = groups.slice(0, MAX_SEGMENTS)
-  const quick = groups.slice(MAX_SEGMENTS)
-
   const parts = [OPENERS[0], OPENERS[1]]
-  main.forEach((g, i) => {
-    parts.push(...buildSegmentDialogue(g, i))
-    // 第二个板块后插一段引申（明示联想、不编事实）
-    if (i === 1 && main.length > 2) {
-      const ext = SEGMENT_EXT[rand(0, SEGMENT_EXT.length)]
-      parts.push(`**彪悍罗：** ${ext.luo}`, `**OK王：** ${ext.wang}`)
-    }
-    if (i < main.length - 1) parts.push(`**彪悍罗：** ${TRANSITIONS[rand(0, TRANSITIONS.length)]}`)
+  newsItems.slice(0, 6).forEach((news, i) => {
+    parts.push(...buildDialogueForNews(news, i))
   })
-  // 超出 4 个主板块的话题并入"快讯速览"
-  if (quick.length > 0) {
-    parts.push(
-      `**彪悍罗：** 最后再快速过几条今天也值得关注的：${quick.map((g) => g.members[0].title).join('；')}。时间关系不展开，感兴趣的听友可以自己搜一下。`
-    )
-    parts.push('**OK王：** 补充一句，速览不等于不重要——今天放不下的话题，明天可能就是头条。')
-  }
   parts.push(CLOSERS[0], CLOSERS[1])
   return parts.join('\n\n')
 }
