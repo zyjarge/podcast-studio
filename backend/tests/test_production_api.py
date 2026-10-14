@@ -391,5 +391,68 @@ class TestClusterTopics:
         assert news_endpoint._parse_keywords({"k": 1}) == []
 
 
+class TestFetchNewsResults:
+    """抓取结果必须如实上报（回归：曾经单源失败也提示成功）"""
+
+    def _create_source(self, SessionLocal, name="测试源", url="http://rss.test/feed"):
+        from app.db.models import RSSSource
+        db = SessionLocal()
+        try:
+            src = RSSSource(name=name, url=url, enabled=True)
+            db.add(src)
+            db.commit()
+            db.refresh(src)
+            return src.id
+        finally:
+            db.close()
+
+    def test_failed_source_reported(self, client, monkeypatch):
+        http, SessionLocal = client
+        src_id = self._create_source(SessionLocal)
+
+        async def boom(self, url, limit=20):
+            raise ConnectionError("连接被拒绝")
+
+        from app.services.rss import RSSService
+        monkeypatch.setattr(RSSService, "fetch", boom)
+
+        resp = http.post("/api/v1/news/fetch", params={"source_id": src_id})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["added"] == 0
+        assert data["failed_sources"] == ["测试源"]
+        r = data["results"][0]
+        assert r["ok"] is False
+        assert r["error"]
+
+    def test_success_source_counts_new_items(self, client, monkeypatch):
+        http, SessionLocal = client
+        src_id = self._create_source(SessionLocal, name="好源")
+
+        from types import SimpleNamespace
+        items = [
+            SimpleNamespace(title="新闻A", url="http://test.com/a1", summary="摘要", content="正文"),
+            SimpleNamespace(title="新闻B", url="http://test.com/b1", summary="摘要", content="正文"),
+        ]
+
+        async def fake_fetch(self, url, limit=20):
+            return items
+
+        from app.services.rss import RSSService
+        monkeypatch.setattr(RSSService, "fetch", fake_fetch)
+
+        resp = http.post("/api/v1/news/fetch", params={"source_id": src_id})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["added"] == 2
+        assert data["failed_sources"] == []
+        assert data["results"][0]["ok"] is True
+        assert data["results"][0]["added"] == 2
+
+        # 再抓一次：URL 去重，新增为 0
+        resp2 = http.post("/api/v1/news/fetch", params={"source_id": src_id})
+        assert resp2.json()["added"] == 0
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])

@@ -77,9 +77,25 @@ def score_all_news(limit: int = 100, db: Session = Depends(get_db)):
     return {"message": f"完成 {count} 条新闻评分"}
 
 
+def _humanize_fetch_error(e: Exception) -> str:
+    """把底层网络异常翻译成用户可读的原因"""
+    name = type(e).__name__
+    if "ConnectError" in name or "ConnectTimeout" in name:
+        return "无法连接该源（请检查地址或中转服务是否在线）"
+    if "RemoteProtocolError" in name or "ReadError" in name:
+        return "连接被中断（中转服务可能不可用）"
+    if "Timeout" in name:
+        return "连接超时"
+    response = getattr(e, "response", None)
+    if getattr(response, "status_code", None):
+        return f"源返回 HTTP {response.status_code}"
+    msg = str(e)
+    return (msg or name)[:80]
+
+
 @router.post("/fetch")
 async def fetch_news(source_id: int | None = None, db: Session = Depends(get_db)):
-    """抓取 RSS 源新闻"""
+    """抓取 RSS 源新闻。逐源返回结果：单个源失败不影响其他源，但会如实上报"""
     try:
         # 导入 RSS 服务
         from app.services.rss import RSSService
@@ -97,8 +113,10 @@ async def fetch_news(source_id: int | None = None, db: Session = Depends(get_db)
         
         new_news_count = 0
         scorer = NewsScorer(db)
+        results = []
         
         for source in sources:
+            source_added = 0
             try:
                 # 抓取新闻
                 items = await rss_service.fetch(source.url, limit=20)
@@ -131,15 +149,36 @@ async def fetch_news(source_id: int | None = None, db: Session = Depends(get_db)
                     
                     db.add(news)
                     new_news_count += 1
+                    source_added += 1
                 
                 db.commit()
-                logger.info(f"从 {source.name} 抓取了 {len(items)} 条新闻")
+                logger.info(f"从 {source.name} 抓取了 {len(items)} 条新闻，新增 {source_added} 条")
+                results.append({
+                    "source_id": source.id,
+                    "name": source.name,
+                    "ok": True,
+                    "added": source_added,
+                    "error": None,
+                })
                 
             except Exception as e:
+                db.rollback()
                 logger.error(f"抓取 {source.name} 失败: {e}")
-                continue
+                results.append({
+                    "source_id": source.id,
+                    "name": source.name,
+                    "ok": False,
+                    "added": 0,
+                    "error": _humanize_fetch_error(e),
+                })
         
-        return {"message": f"抓取完成，新增 {new_news_count} 条新闻"}
+        failed = [r for r in results if not r["ok"]]
+        return {
+            "message": f"抓取完成，新增 {new_news_count} 条新闻",
+            "added": new_news_count,
+            "results": results,
+            "failed_sources": [r["name"] for r in failed],
+        }
         
     except Exception as e:
         logger.error(f"抓取新闻失败: {e}")

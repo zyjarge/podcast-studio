@@ -101,8 +101,15 @@ function RssTab() {
   const handleFetchOne = async (source) => {
     setFetchingId(source.id)
     try {
-      await newsApi.fetch(source.id)
-      toast.success(`已抓取 ${source.name} 的新闻，已自动评分`)
+      const res = await newsApi.fetch(source.id)
+      const r = res?.results?.find((x) => x.source_id === source.id)
+      if (r && !r.ok) {
+        toast.error(`${source.name} 抓取失败：${r.error}`)
+      } else if (!r || r.added === 0) {
+        toast.success(`${source.name} 已是最新，没有新增`)
+      } else {
+        toast.success(`已抓取 ${r.added} 条新闻，已自动评分`)
+      }
     } catch (e) {
       toast.error(humanizeError(e))
     } finally {
@@ -113,8 +120,14 @@ function RssTab() {
   const handleFetchAll = async () => {
     setFetchingAll(true)
     try {
-      await newsApi.fetch()
-      toast.success('已抓取全部启用源的新闻，已自动评分')
+      const res = await newsApi.fetch()
+      const added = res?.added ?? 0
+      const failed = res?.failed_sources || []
+      if (failed.length > 0) {
+        toast.error(`抓取完成，但这些源失败了：${failed.join('、')}`)
+      } else {
+        toast.success(added > 0 ? `已抓取 ${added} 条新闻，已自动评分` : '各源均已是最新')
+      }
     } catch (e) {
       toast.error(humanizeError(e))
     } finally {

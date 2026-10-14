@@ -128,9 +128,13 @@ export default function NewsPool() {
     setFetching(true)
     try {
       const res = await newsApi.fetch()
-      const m = /新增\s*(\d+)\s*条/.exec(res?.message || '')
-      const added = m ? Number(m[1]) : 0
-      toast.success(added > 0 ? `已抓取 ${added} 条新闻，已自动评分` : '新闻池已是最新')
+      const added = res?.added ?? 0
+      const failed = res?.failed_sources || []
+      if (failed.length > 0) {
+        toast.error(`抓取完成，但这些源失败了：${failed.join('、')}`)
+      } else {
+        toast.success(added > 0 ? `已抓取 ${added} 条新闻，已自动评分` : '新闻池已是最新')
+      }
       await load()
     } catch (e) {
       toast.error(humanizeError(e))
