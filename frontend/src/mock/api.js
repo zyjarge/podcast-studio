@@ -26,6 +26,64 @@ export async function mockFetchSource() {
   return { added: rand(2, 6) }
 }
 
+// ── 话题聚类（模拟 LLM 对新闻池的预处理） ──
+
+/**
+ * 把新闻池聚成话题：原型用关键词重叠聚类模拟，正式版由 LLM 输出话题名与概括
+ * 返回 [{ id, title, summary, newsIds, representativeId, topScore, keywords }]，按最高分倒序
+ */
+export async function mockClusterTopics() {
+  await delay(rand(1800, 2600))
+  const { news } = getState()
+
+  // 并查集：共享任一关键词的新闻归为一簇
+  const parent = new Map(news.map((n) => [n.id, n.id]))
+  const find = (x) => {
+    while (parent.get(x) !== x) {
+      parent.set(x, parent.get(parent.get(x)))
+      x = parent.get(x)
+    }
+    return x
+  }
+  const byKw = new Map()
+  news.forEach((n) =>
+    (n.keywords || []).forEach((k) => {
+      if (!byKw.has(k)) byKw.set(k, [])
+      byKw.get(k).push(n.id)
+    })
+  )
+  byKw.forEach((ids) => ids.forEach((id) => {
+    const a = find(ids[0])
+    const b = find(id)
+    if (a !== b) parent.set(a, b)
+  }))
+
+  const groups = new Map()
+  news.forEach((n) => {
+    const root = find(n.id)
+    if (!groups.has(root)) groups.set(root, [])
+    groups.get(root).push(n)
+  })
+
+  return [...groups.values()]
+    .map((items) => {
+      items.sort((a, b) => b.score - a.score)
+      const kwCount = {}
+      items.forEach((n) => (n.keywords || []).forEach((k) => { kwCount[k] = (kwCount[k] || 0) + 1 }))
+      const topKws = Object.entries(kwCount).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([k]) => k)
+      return {
+        id: `topic-${items[0].id}`,
+        title: topKws.join(' · ') || items[0].source,
+        summary: items[0].summary,
+        newsIds: items.map((n) => n.id),
+        representativeId: items[0].id,
+        topScore: items[0].score,
+        keywords: topKws,
+      }
+    })
+    .sort((a, b) => b.topScore - a.topScore)
+}
+
 /** 验证 API Key：600–900ms，mock 永远成功 */
 export async function mockVerifyKeys() {
   await delay(rand(600, 900))

@@ -186,12 +186,17 @@ export function addNewsItems(items) {
     .filter((n) => !state.news.some((x) => x.id === n.id))
     .map((n) => ({ ...n, created_at: n.created_at || nowIso() }))
   if (fresh.length === 0) return 0
-  commit((s) => ({ ...s, news: [...fresh, ...s.news] }))
+  commit((s) => ({ ...s, news: [...fresh, ...s.news], topicsDirty: true }))
   return fresh.length
 }
 
 export function markFetched() {
   commit({ lastFetchAt: nowIso() })
+}
+
+// ── 话题聚类 ──
+export function setTopics(topics) {
+  commit({ topics, topicsDirty: false })
 }
 
 // ── 设置 ──

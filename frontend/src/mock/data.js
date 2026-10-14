@@ -450,5 +450,7 @@ export function buildSeedState() {
     },
     lastFetchAt: hoursAgo(3),
     onboardingDismissed: false,
+    topics: [],
+    topicsDirty: true,
   }
 }
