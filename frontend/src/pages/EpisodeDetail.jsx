@@ -593,6 +593,46 @@ export default function EpisodeDetail() {
               className="bg-transparent border border-transparent hover:border-cream-300 focus:border-accent-coral focus:bg-cream-100 rounded-lg px-2 py-1 focus:outline-none text-sm text-ink-300 transition-colors"
             />
           </div>
+
+          {/* 节目备注（会随素材一起发给 AI） */}
+          <div className="mt-3">
+            <button
+              onClick={() => setNotesOpen(!notesOpen)}
+              className="w-full flex items-center justify-between group"
+            >
+              <span className="flex items-center gap-1.5 text-xs text-ink-50 group-hover:text-ink-300 transition-colors">
+                <StickyNote className="w-3.5 h-3.5 text-accent-gold" />
+                节目备注
+                {episode.notes && !notesOpen && (
+                  <span className="truncate max-w-[200px] text-ink-50/70">— {episode.notes}</span>
+                )}
+              </span>
+              <ChevronDown
+                className={`w-3.5 h-3.5 text-ink-50 transition-transform ${notesOpen ? 'rotate-180' : ''}`}
+              />
+            </button>
+            <AnimatePresence initial={false}>
+              {notesOpen && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className="overflow-hidden"
+                >
+                  <textarea
+                    value={notesDraft}
+                    onChange={(e) => setNotesDraft(e.target.value)}
+                    onBlur={saveNotes}
+                    rows={3}
+                    placeholder="本期想强调的角度，会随素材一起发给 AI"
+                    className="mt-2 w-full px-3 py-2 bg-cream-100 border border-cream-300 rounded-xl text-sm leading-relaxed focus:outline-none focus:border-accent-coral resize-none"
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
           {/* 三阶段进度 */}
           <div className="mt-4 flex items-center gap-3 text-xs text-ink-50 bg-cream-200 rounded-xl border border-cream-300 px-3 py-2">
             <span className="inline-flex items-center gap-1">
@@ -657,45 +697,6 @@ export default function EpisodeDetail() {
       <div className="flex-1 min-w-0 p-6">
         <div className="mx-auto w-full max-w-[1440px] grid grid-cols-1 min-[1600px]:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] gap-5 items-start">
           <div className="space-y-5 min-w-0">
-        {/* 节目备注 */}
-        <section className="bg-cream-100 rounded-2xl border border-cream-300 shadow-[0_1px_3px_rgba(45,42,36,0.06)] overflow-hidden">
-          <button
-            onClick={() => setNotesOpen(!notesOpen)}
-            className="w-full flex items-center justify-between px-5 py-4"
-          >
-            <div className="flex items-center gap-2">
-              <StickyNote className="w-4 h-4 text-accent-gold" />
-              <h2 className="text-base font-semibold text-ink-300">节目备注</h2>
-              {episode.notes && !notesOpen && (
-                <span className="text-xs text-ink-50 truncate max-w-[300px]">— {episode.notes}</span>
-              )}
-            </div>
-            <ChevronDown className={`w-4 h-4 text-ink-50 transition-transform ${notesOpen ? 'rotate-180' : ''}`} />
-          </button>
-          <AnimatePresence initial={false}>
-            {notesOpen && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: 'auto', opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.2 }}
-                className="overflow-hidden"
-              >
-                <div className="px-5 pb-5">
-                  <textarea
-                    value={notesDraft}
-                    onChange={(e) => setNotesDraft(e.target.value)}
-                    onBlur={saveNotes}
-                    rows={3}
-                    placeholder="本期想强调的角度，会随素材一起发给 AI"
-                    className="w-full px-4 py-3 bg-cream-200 border border-cream-300 rounded-xl text-sm leading-relaxed focus:outline-none focus:border-accent-coral resize-none"
-                  />
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </section>
-
         {/* 内容区：逐字稿 / 图文正文 */}
         <section className="bg-cream-100 rounded-2xl border border-cream-300 shadow-[0_1px_3px_rgba(45,42,36,0.06)] p-5">
           <div className="flex items-center justify-between mb-4">
