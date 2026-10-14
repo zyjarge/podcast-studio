@@ -64,6 +64,7 @@ PODCAST_BACKEND_PORT="$BACKEND_PORT" "$BACKEND_PYTHON" \
     -m uvicorn app.main:app \
     --host 0.0.0.0 \
     --port "$BACKEND_PORT" \
+    --reload \
     > /tmp/podcast-backend.log 2>&1 &
 BACKEND_PID=$!
 echo "$BACKEND_PID" > "$PID_FILE"

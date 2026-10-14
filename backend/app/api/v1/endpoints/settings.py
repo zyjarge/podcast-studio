@@ -12,8 +12,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# .env 文件路径
-ENV_FILE = Path(__file__).parent.parent.parent / ".env"
+# .env 文件路径：与启动加载（pydantic / load_dotenv）同一份，即 backend/.env
+# （历史上误指向 backend/app/api/.env，导致 UI 保存的 key 重启后丢失——MiniMax TTS 失效的根因）
+ENV_FILE = Path(__file__).resolve().parents[4] / ".env"
 
 # Serialise concurrent writers of .env. update_env and update_script_prompt
 # both mutate the same file; without this lock two requests can clobber each

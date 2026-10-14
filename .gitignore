@@ -26,3 +26,7 @@ V1/frontend/package-lock.json
 # 系统文件
 .DS_Store
 Thumbs.db
+
+# SQLite WAL 边车文件
+*.db-shm
+*.db-wal

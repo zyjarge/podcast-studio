@@ -4,8 +4,12 @@ from app.db.session import get_db
 from app.db.models import News, RSSSource
 from app.schemas.news import NewsResponse
 from app.services.news_scorer import NewsScorer
+from app.services.podcast import get_podcast_service
+from app.services.llm import TOPIC_CLUSTER_PROMPT, extract_json_array
 from typing import List
+from collections import Counter
 import asyncio
+import json
 import logging
 
 logger = logging.getLogger(__name__)
@@ -73,9 +77,25 @@ def score_all_news(limit: int = 100, db: Session = Depends(get_db)):
     return {"message": f"完成 {count} 条新闻评分"}
 
 
+def _humanize_fetch_error(e: Exception) -> str:
+    """把底层网络异常翻译成用户可读的原因"""
+    name = type(e).__name__
+    if "ConnectError" in name or "ConnectTimeout" in name:
+        return "无法连接该源（请检查地址或中转服务是否在线）"
+    if "RemoteProtocolError" in name or "ReadError" in name:
+        return "连接被中断（中转服务可能不可用）"
+    if "Timeout" in name:
+        return "连接超时"
+    response = getattr(e, "response", None)
+    if getattr(response, "status_code", None):
+        return f"源返回 HTTP {response.status_code}"
+    msg = str(e)
+    return (msg or name)[:80]
+
+
 @router.post("/fetch")
 async def fetch_news(source_id: int | None = None, db: Session = Depends(get_db)):
-    """抓取 RSS 源新闻"""
+    """抓取 RSS 源新闻。逐源返回结果：单个源失败不影响其他源，但会如实上报"""
     try:
         # 导入 RSS 服务
         from app.services.rss import RSSService
@@ -93,8 +113,10 @@ async def fetch_news(source_id: int | None = None, db: Session = Depends(get_db)
         
         new_news_count = 0
         scorer = NewsScorer(db)
+        results = []
         
         for source in sources:
+            source_added = 0
             try:
                 # 抓取新闻
                 items = await rss_service.fetch(source.url, limit=20)
@@ -127,16 +149,175 @@ async def fetch_news(source_id: int | None = None, db: Session = Depends(get_db)
                     
                     db.add(news)
                     new_news_count += 1
+                    source_added += 1
                 
                 db.commit()
-                logger.info(f"从 {source.name} 抓取了 {len(items)} 条新闻")
+                logger.info(f"从 {source.name} 抓取了 {len(items)} 条新闻，新增 {source_added} 条")
+                results.append({
+                    "source_id": source.id,
+                    "name": source.name,
+                    "ok": True,
+                    "added": source_added,
+                    "error": None,
+                })
                 
             except Exception as e:
+                db.rollback()
                 logger.error(f"抓取 {source.name} 失败: {e}")
-                continue
+                results.append({
+                    "source_id": source.id,
+                    "name": source.name,
+                    "ok": False,
+                    "added": 0,
+                    "error": _humanize_fetch_error(e),
+                })
         
-        return {"message": f"抓取完成，新增 {new_news_count} 条新闻"}
+        failed = [r for r in results if not r["ok"]]
+        return {
+            "message": f"抓取完成，新增 {new_news_count} 条新闻",
+            "added": new_news_count,
+            "results": results,
+            "failed_sources": [r["name"] for r in failed],
+        }
         
     except Exception as e:
         logger.error(f"抓取新闻失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ===== 话题聚类 =====
+
+
+def _parse_keywords(raw) -> list:
+    """解析 News.keywords。该列是 JSON 类型，正常返回 list；防御历史数据里混入 JSON 字符串的情况"""
+    if isinstance(raw, list):
+        kws = raw
+    elif isinstance(raw, str):
+        try:
+            kws = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            kws = []
+    else:
+        kws = []
+    if not isinstance(kws, list):
+        return []
+    return [str(k).strip() for k in kws if str(k).strip()]
+
+
+def _cluster_topics_with_llm(news_list) -> list:
+    """调用 LLM 按话题聚类。LLM 不可用或输出无法解析时抛异常，由调用方降级"""
+    service = get_podcast_service()
+    if not service.llm:
+        raise RuntimeError("LLM service not initialized. Please set DEEPSEEK_API_KEY")
+
+    news_lines = []
+    for n in news_list:
+        summary = (n.summary or "").strip().replace("\n", " ")[:100]
+        news_lines.append(f"{n.id}: {n.title} — {summary}")
+    prompt = TOPIC_CLUSTER_PROMPT.format(news_text="\n".join(news_lines))
+
+    response = service.llm.generate(prompt=prompt, max_tokens=2048, temperature=0.3)
+
+    data = extract_json_array(response.text)
+    if not isinstance(data, list):
+        raise ValueError("LLM 聚类输出不是 JSON 数组")
+
+    valid_ids = {n.id for n in news_list}
+    topics = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        news_ids = [
+            i for i in item.get("news_ids", [])
+            if isinstance(i, int) and not isinstance(i, bool) and i in valid_ids
+        ]
+        if not news_ids:
+            continue
+        topics.append({
+            "title": str(item.get("title", "")).strip()[:12] or "未命名话题",
+            "summary": str(item.get("summary", "")).strip()[:40],
+            "news_ids": news_ids,
+        })
+
+    if not topics:
+        raise ValueError("LLM 聚类输出无有效话题")
+    return topics
+
+
+def _cluster_topics_heuristic(news_list) -> list:
+    """
+    关键词重叠启发式聚类（LLM 不可用时的降级方案）：
+    共享任一 keyword 的新闻用并查集归簇；话题名取组内最高频前 2 个关键词，
+    summary 取组内最高分新闻的 summary；按组内最高分排序。
+    """
+    parent = {n.id: n.id for n in news_list}
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a, b):
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[rb] = ra
+
+    kw_map = {n.id: _parse_keywords(n.keywords) for n in news_list}
+
+    # 共享任一关键词的新闻归为一簇
+    kw_owner = {}
+    for n in news_list:
+        for kw in kw_map[n.id]:
+            if kw in kw_owner:
+                union(n.id, kw_owner[kw])
+            else:
+                kw_owner[kw] = n.id
+
+    groups = {}
+    for n in news_list:
+        groups.setdefault(find(n.id), []).append(n)
+
+    topics = []
+    for members in groups.values():
+        counter = Counter()
+        for m in members:
+            counter.update(kw_map[m.id])
+        top_kws = [kw for kw, _ in counter.most_common(2)]
+
+        best = max(members, key=lambda m: m.score or 0)
+        title = " · ".join(top_kws) if top_kws else (best.title or "")[:12]
+        ordered = sorted(members, key=lambda m: m.score or 0, reverse=True)
+
+        topics.append({
+            "title": title,
+            "summary": best.summary or best.title or "",
+            "news_ids": [m.id for m in ordered],
+            "_score": best.score or 0,
+        })
+
+    # 按组内最高分排序
+    topics.sort(key=lambda t: t["_score"], reverse=True)
+    for t in topics:
+        del t["_score"]
+    return topics
+
+
+@router.post("/cluster-topics")
+def cluster_topics(db: Session = Depends(get_db)):
+    """
+    按话题聚类最近 30 条新闻（按创建时间倒序）。
+    优先 LLM 聚类；LLM 不可用或输出解析失败时降级为关键词重叠启发式，
+    保证永远返回结果。
+    """
+    news_list = db.query(News).order_by(News.created_at.desc()).limit(30).all()
+    if not news_list:
+        return {"topics": []}
+
+    try:
+        topics = _cluster_topics_with_llm(news_list)
+        return {"topics": topics}
+    except Exception as e:
+        logger.warning(f"LLM 话题聚类失败，降级为关键词启发式: {e}")
+
+    return {"topics": _cluster_topics_heuristic(news_list)}

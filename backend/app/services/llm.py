@@ -56,10 +56,35 @@ PODCAST_USER_TEMPLATE = PROMPTS.get("podcast_user_template", """请根据以下�
 # Fixed intro (not passed to LLM)
 INTRO_TEXT = PROMPTS.get("intro_text", "")
 
+# 候选标题 / 公众号图文 / 话题聚类提示词
+TITLE_SUGGESTION_PROMPT = PROMPTS.get("title_suggestion_prompt", "")
+ARTICLE_PROMPT = PROMPTS.get("article_prompt", "")
+TOPIC_CLUSTER_PROMPT = PROMPTS.get("topic_cluster_prompt", "")
+
 
 def get_intro() -> str:
     """Get fixed intro"""
     return INTRO_TEXT
+
+
+def extract_json_array(text: str):
+    """从 LLM 输出中提取 JSON 数组：先严格解析，失败则截取首个 [ 到末个 ] 再试一次"""
+    import json
+
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        pass
+    start = text.find("[")
+    end = text.rfind("]")
+    if start == -1 or end == -1 or end <= start:
+        return None
+    try:
+        return json.loads(text[start:end + 1])
+    except (json.JSONDecodeError, TypeError):
+        return None
 
 
 class LLMResponse(BaseModel):

@@ -1,10 +1,8 @@
 // API service for Podcast Studio frontend
-// 使用相对路径,通过 Vite dev server 的 proxy 转发到后端
-// 这样无论从哪台机器访问都能正常工作
+// 使用相对路径，通过 Vite dev server 的 proxy 转发到后端（/api、/audio → 8002）
 const API_BASE = import.meta.env.VITE_API_BASE || '/api/v1'
-const AUDIO_BASE = ''  // 音频文件也走相对路径, vite proxy 会处理 /data 路径
 
-class ApiError extends Error {
+export class ApiError extends Error {
   constructor(message, status) {
     super(message)
     this.status = status
@@ -25,25 +23,137 @@ async function request(endpoint, options = {}) {
     config.body = JSON.stringify(options.body)
   }
 
+  let response
   try {
-    const response = await fetch(url, config)
-    
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
-      throw new ApiError(error.detail || 'Request failed', response.status)
-    }
-    
-    return response.json()
+    response = await fetch(url, config)
   } catch (error) {
-    if (error instanceof ApiError) throw error
+    // 网络层失败（后端没起 / 断网）：status 0，由 humanizeError 统一措辞
     throw new ApiError(error.message, 0)
   }
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
+    const detail = typeof error.detail === 'string' ? error.detail : JSON.stringify(error.detail)
+    throw new ApiError(detail || 'Request failed', response.status)
+  }
+
+  return response.json()
+}
+
+/** 把 ApiError 翻译成用户能看懂的措辞（doc/UX_COPY.md） */
+export function humanizeError(e) {
+  if (!(e instanceof ApiError)) return String(e)
+  if (e.status === 0) return '网络异常——请确认后端服务正在运行，然后重试'
+  if (/DEEPSEEK_API_KEY|LLM service not initialized/i.test(e.message)) {
+    return 'DeepSeek 的 Key 无效或未配置，请到 设置 → API 配置 检查'
+  }
+  return e.message
+}
+
+// ── 数据形状适配：后端 snake_case/分字段 → 组件使用的形状 ──
+
+/** News：评分取整，三维分合成 scores 对象，keywords 容错 */
+export function normalizeNews(n) {
+  return {
+    ...n,
+    score: Math.round(n.score || 0),
+    keywords: Array.isArray(n.keywords) ? n.keywords : [],
+    scores: {
+      timeliness: Math.round(n.score_timeliness || 0),
+      topic: Math.round(n.score_authority || 0),
+      depth: Math.round(n.score_depth || 0),
+    },
+  }
+}
+
+/** EpisodeNews + 全量新闻 join：卡片要显示正文/评分，EpisodeNews 内嵌的 news 只有摘要 */
+export function joinEpisodeNews(episodeNewsList, newsById) {
+  return episodeNewsList
+    .map((en) => {
+      const full = newsById[en.news_id]
+      const base = full || en.news || {}
+      return {
+        ...base,
+        id: en.news_id, // 组件内统一用 news_id 作为条目 id（拖拽/展开/备注的 key）
+        episodeNewsId: en.id,
+        note: en.notes || '',
+        title: base.title || '',
+        source: base.source || '',
+        summary: base.summary || '',
+        content: base.content || '',
+        score: Math.round(base.score || 0),
+        keywords: Array.isArray(base.keywords) ? base.keywords : [],
+      }
+    })
+    .filter((n) => n.id != null)
+}
+
+/** title_suggestions / cover_choice 是 JSON 字符串，解析失败返回兜底值 */
+export function parseJsonField(raw, fallback) {
+  if (!raw) return fallback
+  try {
+    const parsed = JSON.parse(raw)
+    return parsed ?? fallback
+  } catch {
+    return fallback
+  }
+}
+
+// Episodes API
+export const episodesApi = {
+  list: () => request('/episodes/'),
+  get: (id) => request(`/episodes/${id}`),
+  create: (data) => request('/episodes/', { method: 'POST', body: data }),
+  update: (id, data) => request(`/episodes/${id}`, { method: 'PUT', body: data }),
+  delete: (id) => request(`/episodes/${id}`, { method: 'DELETE' }),
+
+  // 节目内新闻
+  listNews: (episodeId) => request(`/episodes/${episodeId}/news`),
+  // 注意：后端收裸 JSON 数组（body 即 [news_id, ...]）
+  addNews: (episodeId, newsIds) =>
+    request(`/episodes/${episodeId}/news`, { method: 'POST', body: newsIds }),
+  softDeleteNews: (episodeId, newsId) =>
+    request(`/episodes/${episodeId}/news/${newsId}/soft-delete`, { method: 'POST' }),
+  restoreNews: (episodeId, newsId) =>
+    request(`/episodes/${episodeId}/news/${newsId}/restore`, { method: 'POST' }),
+  updateNewsNotes: (episodeId, newsId, notes) =>
+    request(`/episodes/${episodeId}/news/${newsId}/notes`, { method: 'PUT', body: { notes } }),
+  // orders: [{ id: EpisodeNews 的 id, order }]
+  reorderNews: (episodeId, orders) =>
+    request(`/episodes/${episodeId}/news/reorder`, { method: 'PUT', body: orders }),
+
+  // 生成
+  generateScript: (episodeId, episodeNotes = '') =>
+    request(`/episodes/${episodeId}/generate-episode-script`, {
+      method: 'POST',
+      body: { episode_notes: episodeNotes },
+    }),
+  generateTitles: (episodeId) =>
+    request(`/episodes/${episodeId}/generate-titles`, { method: 'POST' }),
+  generateArticle: (episodeId) =>
+    request(`/episodes/${episodeId}/generate-article`, { method: 'POST' }),
+
+  // 音频（后台任务 + 轮询）
+  generateAudio: (episodeId, { force = false } = {}) =>
+    request(`/episodes/${episodeId}/generate-episode-audio${force ? '?force=true' : ''}`, {
+      method: 'POST',
+    }),
+  getAudioProgress: (episodeId) => request(`/episodes/${episodeId}/audio-progress`),
+  deleteAudio: (episodeId) => request(`/episodes/${episodeId}/audio`, { method: 'DELETE' }),
+}
+
+// News API
+export const newsApi = {
+  list: ({ sortBy = 'created_at', order = 'desc', limit = 200 } = {}) =>
+    request(`/news/?sort_by=${sortBy}&order=${order}&limit=${limit}`),
+  fetch: (sourceId) =>
+    request(`/news/fetch${sourceId ? `?source_id=${sourceId}` : ''}`, { method: 'POST' }),
+  clusterTopics: () => request('/news/cluster-topics', { method: 'POST' }),
 }
 
 // RSS Sources API
 export const sourcesApi = {
   list: () => request('/sources/'),
-  get: (id) => request(`/sources/${id}`),
   create: (data) => request('/sources/', { method: 'POST', body: data }),
   update: (id, data) => request(`/sources/${id}`, { method: 'PUT', body: data }),
   delete: (id) => request(`/sources/${id}`, { method: 'DELETE' }),
@@ -58,104 +168,14 @@ export const rssParserApi = {
 export const settingsApi = {
   getApiStatus: () => request('/settings/status'),
   getEnvKeys: () => request('/settings/env-keys'),
-  updateEnv: (key, value) => request(`/settings/update-env?key=${key}&value=${value}`, {
-    method: 'POST'
-  }),
-  getScriptPrompt: () => request('/settings/script-prompt'),
-  updateScriptPrompt: (prompt) => request('/settings/script-prompt', {
-    method: 'PUT',
-    body: { script_prompt: prompt }
-  }),
-}
-
-// News API
-export const newsApi = {
-  list: (params = {}) => {
-    const queryParams = new URLSearchParams()
-    if (params.sourceId) queryParams.append('source_id', params.sourceId)
-    if (params.sortBy) queryParams.append('sort_by', params.sortBy)
-    if (params.order) queryParams.append('order', params.order)
-    if (params.minScore) queryParams.append('min_score', params.minScore)
-    if (params.limit) queryParams.append('limit', params.limit)
-    const query = queryParams.toString()
-    return request(`/news/${query ? '?' + query : ''}`)
-  },
-  fetch: (sourceId) => sourceId
-    ? request(`/news/fetch?source_id=${sourceId}`, { method: 'POST' })
-    : request('/news/fetch', { method: 'POST' }),
-  // Issue #17: page-level wrapper that fetches every enabled RSS source.
-  // EpisodeDetail's "fetch latest" button called newsApi.fetchAll() which
-  // didn't exist - click did nothing and silently swallowed the error.
-  fetchAll: () => request('/news/fetch', { method: 'POST' }),
-  scoreAll: (limit = 100) => request('/news/score-all?limit=' + limit, { method: 'POST' }),
-}
-
-// Episodes API
-export const episodesApi = {
-  list: () => request('/episodes/'),
-  get: (id) => request(`/episodes/${id}`),
-  create: (data) => request('/episodes/', { method: 'POST', body: data }),
-  update: (id, data) => request(`/episodes/${id}`, { method: 'PUT', body: data }),
-  delete: (id) => request(`/episodes/${id}`, { method: 'DELETE' }),
-  batchDelete: (ids) => request('/episodes/batch-delete', { method: 'POST', body: ids }),
-  
-  // Episode News
-  listNews: (episodeId) => request(`/episodes/${episodeId}/news`),
-  addNews: (episodeId, newsIds) => request(`/episodes/${episodeId}/news`, { method: 'POST', body: newsIds }),
-  reorderNews: (episodeId, orders) => request(`/episodes/${episodeId}/news/reorder`, { method: 'PUT', body: orders }),
-  
-  // 软删除/回收站
-  softDelete: (episodeId, newsId) => request(`/episodes/${episodeId}/news/${newsId}/soft-delete`, { method: 'POST' }),
-  restore: (episodeId, newsId) => request(`/episodes/${episodeId}/news/${newsId}/restore`, { method: 'POST' }),
-  permanentDelete: (episodeId, newsId) => request(`/episodes/${episodeId}/news/${newsId}/permanent`, { method: 'DELETE' }),
-  getDeletedNews: (episodeId) => request(`/episodes/${episodeId}/news/deleted`),
-  
-  // Script operations
-  updateScript: (episodeId, newsId, script) => 
-    request(`/episodes/${episodeId}/news/${newsId}/script`, { 
-      method: 'PUT', 
-      body: { script }
-    }),
-  
-  // Notes operations
-  updateNotes: (episodeId, newsId, notes) =>
-    request(`/episodes/${episodeId}/news/${newsId}/notes`, {
-      method: 'PUT',
-      body: { notes }
-    }),
-
-  // Generation
-  generateScript: (episodeId, newsId) => request(`/episodes/${episodeId}/news/${newsId}/generate-script`, { method: 'POST' }),
-  generateAudio: (episodeId, newsId, voiceId = 'luoyonghao') => 
-    request(`/episodes/${episodeId}/news/${newsId}/generate-audio?voice_id=${voiceId}`, { method: 'POST' }),
-  generateAll: (episodeId) => request(`/episodes/${episodeId}/generate-all`, { method: 'POST' }),
-  
-  // Episode-level script generation
-  generateEpisodeScript: (episodeId, episodeNotes = '') =>
-    request(`/episodes/${episodeId}/generate-episode-script`, {
+  updateEnv: (key, value) =>
+    request(`/settings/update-env?key=${encodeURIComponent(key)}&value=${encodeURIComponent(value)}`, {
       method: 'POST',
-      body: { episode_notes: episodeNotes }
     }),
-
-  // Episode-level audio generation
-  generateEpisodeAudio: (episodeId) =>
-    request(`/episodes/${episodeId}/generate-episode-audio`, { method: 'POST' }),
-
-  getAudioProgress: (episodeId) =>
-    request(`/episodes/${episodeId}/audio-progress`),
-
-  injectTestScript: (episodeId) =>
-    request(`/episodes/${episodeId}/inject-test-script`, { method: 'POST' }),
-
-  // Audio management
-  deleteAudio: (episodeId) =>
-    request(`/episodes/${episodeId}/audio`, { method: 'DELETE' }),
-
-  // Batch generation
-  batchGenerate: (episodeId, data) => request(`/episodes/${episodeId}/batch-generate`, { 
-    method: 'POST', 
-    body: data 
-  }),
+  getScriptPrompt: () => request('/settings/script-prompt'),
+  updateScriptPrompt: (prompt) =>
+    request('/settings/script-prompt', { method: 'PUT', body: { script_prompt: prompt } }),
 }
 
-export { API_BASE, AUDIO_BASE }
+/** 音频文件地址（相对路径，走 vite 代理） */
+export const episodeAudioUrl = (episodeId) => `/audio/${episodeId}/episode_${episodeId}.mp3`

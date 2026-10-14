@@ -53,6 +53,22 @@ def _migrate_db():
             cursor.execute("ALTER TABLE episodes ADD COLUMN audio_url TEXT DEFAULT ''")
             logger.info("Migration: added episodes.audio_url column")
 
+        if "notes" not in ep_cols:
+            cursor.execute("ALTER TABLE episodes ADD COLUMN notes TEXT DEFAULT ''")
+            logger.info("Migration: added episodes.notes column")
+
+        if "article" not in ep_cols:
+            cursor.execute("ALTER TABLE episodes ADD COLUMN article TEXT DEFAULT ''")
+            logger.info("Migration: added episodes.article column")
+
+        if "title_suggestions" not in ep_cols:
+            cursor.execute("ALTER TABLE episodes ADD COLUMN title_suggestions TEXT DEFAULT ''")
+            logger.info("Migration: added episodes.title_suggestions column")
+
+        if "cover_choice" not in ep_cols:
+            cursor.execute("ALTER TABLE episodes ADD COLUMN cover_choice TEXT DEFAULT ''")
+            logger.info("Migration: added episodes.cover_choice column")
+
         conn.commit()
         conn.close()
     except Exception as e:
@@ -70,16 +86,35 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Podcast Studio API", lifespan=lifespan)
 
-# CORS - explicit allow-list from settings.CORS_ALLOWED_ORIGINS. The previous
-# config used allow_origins=["*"] with allow_credentials=True, which violates
-# the W3C CORS spec (browsers reject it the moment a credentialed request
-# arrives) and exposes the API to any origin. See issue #2.
+# CORS - two layers:
+#   1. Explicit allow-list via settings.CORS_ALLOWED_ORIGINS (comma-
+#      separated). Production hosts / known dev hosts go here.
+#   2. Regex fallback for typical LAN dev addresses so a developer
+#      running uvicorn on their dev box can hit the API from another
+#      machine on the same LAN (e.g. http://192.168.3.20:3001 -> the
+#      backend at http://192.168.3.20:8002) without the dev env having
+#      to enumerate every address by hand. The regex is restricted to
+#      loopback + private RFC 1918 ranges; it never matches public
+#      internet origins.
+#
+# Both layers run in parallel - CORSMiddleware takes the union.
+# allow_credentials stays False (issue #2) so we don't re-introduce
+# the spec-violating combination of wildcard + credentials.
+_LAN_DEV_ORIGIN_RE = (
+    r"^https?://("
+    r"localhost|127\.0\.0\.1|::1"          # loopback
+    r"|10\.\d{1,3}\.\d{1,3}\.\d{1,3}"      # 10.0.0.0/8
+    r"|172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}"  # 172.16.0.0/12
+    r"|192\.168\.\d{1,3}\.\d{1,3}"          # 192.168.0.0/16
+    r"):\d{1,5}$"
+)
 _cors_origins: List[str] = [
     o.strip() for o in settings.CORS_ALLOWED_ORIGINS.split(",") if o.strip()
 ]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
+    allow_origin_regex=_LAN_DEV_ORIGIN_RE,
     allow_credentials=False,  # no cookie-based auth yet; flip True when adding it
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"],

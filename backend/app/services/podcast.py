@@ -137,6 +137,107 @@ class PodcastService:
         logger.info(f"Generated episode script: {len(full_script)} chars")
         return full_script
 
+    async def generate_titles(
+        self,
+        news_items: list,
+        max_tokens: int = 1024
+    ) -> str:
+        """
+        Generate 3 candidate episode titles (with style tags) from news items.
+
+        Args:
+            news_items: list of dicts with keys: title, summary
+            max_tokens: Max tokens for generation
+
+        Returns:
+            Raw LLM output text (expected to be a JSON array,
+            parsing is left to the caller)
+        """
+        if not self.llm:
+            raise RuntimeError("LLM service not initialized. Please set DEEPSEEK_API_KEY")
+
+        from app.services.llm import TITLE_SUGGESTION_PROMPT
+
+        # 标题生成只需要标题+摘要，避免正文撑爆上下文
+        news_blocks = []
+        for i, item in enumerate(news_items, 1):
+            title = item.get("title", "")
+            summary = item.get("summary", "")
+            news_blocks.append(f"新闻{i}：{title}\n摘要: {summary or title}")
+        news_text = "\n\n".join(news_blocks)
+
+        prompt = TITLE_SUGGESTION_PROMPT.format(news_text=news_text)
+
+        logger.info(f"Generating title suggestions: {len(news_items)} news items")
+
+        response = self.llm.generate(
+            prompt=prompt,
+            max_tokens=max_tokens,
+            temperature=0.9
+        )
+
+        logger.info(f"Generated title suggestions: {len(response.text)} chars")
+        return response.text
+
+    async def generate_article(
+        self,
+        news_items: list,
+        episode_notes: str = "",
+        max_tokens: int = 8192
+    ) -> str:
+        """
+        Generate a WeChat-article-style Markdown piece from all news items.
+
+        Args:
+            news_items: list of dicts with keys: title, summary, content, notes
+            episode_notes: Episode-level notes (编辑对图文方向的要求)
+            max_tokens: Max tokens for generation
+
+        Returns:
+            Article Markdown text
+        """
+        if not self.llm:
+            raise RuntimeError("LLM service not initialized. Please set DEEPSEEK_API_KEY")
+
+        from app.services.llm import ARTICLE_PROMPT
+
+        # 图文需要正文细节，正文缺失时回退摘要
+        news_blocks = []
+        for i, item in enumerate(news_items, 1):
+            title = item.get("title", "")
+            summary = item.get("summary", "")
+            content = item.get("content", "")
+            notes = item.get("notes", "")
+
+            body = content or summary or title
+
+            block = f"新闻{i}：{title}\n摘要: {summary}\n正文: {body}"
+            if notes:
+                block += f"\n【编辑备注】: {notes}"
+            news_blocks.append(block)
+
+        news_text = "\n\n".join(news_blocks)
+
+        prompt = ARTICLE_PROMPT.format(news_text=news_text)
+
+        # 节目级备注作为额外写作要求追加
+        if episode_notes:
+            prompt += f"\n\n【编辑备注/额外要求】:\n{episode_notes}"
+
+        logger.info(
+            f"Generating article: {len(news_items)} news items, "
+            f"episode_notes={'yes' if episode_notes else 'no'}, max_tokens={max_tokens}"
+        )
+
+        response = self.llm.generate(
+            prompt=prompt,
+            max_tokens=max_tokens,
+            temperature=0.7
+        )
+
+        logger.info(f"Generated article: {len(response.text)} chars")
+        return response.text
+
     async def generate_audio(
         self,
         script: str,
