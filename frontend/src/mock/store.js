@@ -9,7 +9,9 @@ function load() {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
       const parsed = JSON.parse(raw)
-      if (parsed && parsed.version === 1) return parsed
+      // 与种子结构浅合并：旧缓存里缺失的新字段（如 topics）用默认值补齐，
+      // 已有内容（用户数据）优先保留
+      if (parsed && parsed.version === 1) return { ...buildSeedState(), ...parsed }
     }
   } catch {
     // 损坏的缓存直接重建
