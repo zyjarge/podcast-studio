@@ -3,12 +3,14 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
 from app.db.session import get_db
 from app.db.models import Episode, EpisodeNews, News, NewsStatus
-from app.schemas.episode import EpisodeCreate, EpisodeUpdate, EpisodeResponse
+from app.schemas.episode import EpisodeCreate, EpisodeUpdate, EpisodeResponse, EpisodeStatus
 from app.schemas.episode_news import EpisodeNewsResponse, EpisodeNewsUpdate
 from app.services.podcast import get_podcast_service
 from typing import List, Optional
 from pydantic import BaseModel
+from datetime import datetime
 import asyncio
+import json
 import logging
 import os
 from pathlib import Path
@@ -57,6 +59,9 @@ def update_episode(episode_id: int, episode: EpisodeUpdate, db: Session = Depend
         "outro_template",
         "script_prompt",
         "script",
+        "notes",
+        "article",
+        "cover_choice",
         "scheduled_date",
     }
 
@@ -75,6 +80,13 @@ def update_episode(episode_id: int, episode: EpisodeUpdate, db: Session = Depend
                 f"endpoint: {', '.join(sorted(_EPISODE_UPDATE_WHITELIST))}."
             ),
         )
+
+    # 首次发布时记录发布时间；重复发布不覆盖已有 published_at
+    if (
+        supplied.get("status") == EpisodeStatus.PUBLISHED
+        and db_episode.status != EpisodeStatus.PUBLISHED
+    ):
+        db_episode.published_at = datetime.utcnow()
 
     for key, value in supplied.items():
         setattr(db_episode, key, value)
@@ -645,6 +657,123 @@ async def generate_episode_script(
     except Exception as e:
         logger.error(f"Error generating episode script: {e}")
         raise HTTPException(status_code=500, detail=f"Error generating episode script: {str(e)}")
+
+
+# ===== 标题候选 / 公众号图文生成 =====
+
+
+def _get_episode_news_items(db: Session, episode_id: int) -> list:
+    """汇总本期未删除新闻为 LLM 输入项（title/summary/content/notes）"""
+    episode_news_list = db.query(EpisodeNews).options(
+        joinedload(EpisodeNews.news)
+    ).filter(
+        EpisodeNews.episode_id == episode_id,
+        EpisodeNews.deleted_at == None  # 过滤已删除的
+    ).order_by(EpisodeNews.order).all()
+
+    news_items = []
+    for en in episode_news_list:
+        news = en.news
+        if not news:
+            continue
+        news_items.append({
+            "title": news.title or "",
+            "summary": news.summary or "",
+            "content": news.content or "",
+            "notes": en.notes or "",
+        })
+    return news_items
+
+
+def _parse_title_suggestions(raw: str):
+    """解析并校验标题候选列表，每个元素需为含 text 的对象"""
+    from app.services.llm import extract_json_array
+
+    data = extract_json_array(raw)
+    if not isinstance(data, list):
+        return None
+    titles = []
+    for item in data:
+        if isinstance(item, dict) and item.get("text"):
+            titles.append({
+                "text": str(item["text"]),
+                "style": str(item.get("style", "")),
+            })
+    return titles or None
+
+
+@router.post("/{episode_id}/generate-titles")
+async def generate_titles(episode_id: int, db: Session = Depends(get_db)):
+    """
+    为整期节目生成 3 条候选标题（带风格标签）。
+    结果以 JSON 字符串存入 episode.title_suggestions。
+    """
+    episode = db.query(Episode).filter(Episode.id == episode_id).first()
+    if not episode:
+        raise HTTPException(status_code=404, detail="Episode not found")
+
+    news_items = _get_episode_news_items(db, episode_id)
+    if not news_items:
+        raise HTTPException(status_code=400, detail="No news in this episode")
+
+    try:
+        podcast_service = get_podcast_service()
+        raw = await podcast_service.generate_titles(news_items=news_items)
+    except RuntimeError as e:
+        # LLM 未配置等上游不可用
+        logger.error(f"LLM unavailable for title generation: {e}")
+        raise HTTPException(status_code=502, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error generating titles: {e}")
+        raise HTTPException(status_code=500, detail=f"Error generating titles: {str(e)}")
+
+    titles = _parse_title_suggestions(raw)
+    if titles is None:
+        logger.error(f"Failed to parse title suggestions from LLM output: {raw[:200]}")
+        raise HTTPException(status_code=502, detail="LLM 返回的标题格式无法解析")
+
+    episode.title_suggestions = json.dumps(titles, ensure_ascii=False)
+    db.commit()
+
+    logger.info(f"Generated {len(titles)} title suggestions for episode {episode_id}")
+
+    return {"titles": titles}
+
+
+@router.post("/{episode_id}/generate-article")
+async def generate_article(episode_id: int, db: Session = Depends(get_db)):
+    """
+    根据本期未删除新闻 + 节目备注生成公众号图文正文（Markdown）。
+    结果存入 episode.article。
+    """
+    episode = db.query(Episode).filter(Episode.id == episode_id).first()
+    if not episode:
+        raise HTTPException(status_code=404, detail="Episode not found")
+
+    news_items = _get_episode_news_items(db, episode_id)
+    if not news_items:
+        raise HTTPException(status_code=400, detail="No news in this episode")
+
+    try:
+        podcast_service = get_podcast_service()
+        article = await podcast_service.generate_article(
+            news_items=news_items,
+            episode_notes=episode.notes or ""
+        )
+    except RuntimeError as e:
+        # LLM 未配置等上游不可用
+        logger.error(f"LLM unavailable for article generation: {e}")
+        raise HTTPException(status_code=502, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error generating article: {e}")
+        raise HTTPException(status_code=500, detail=f"Error generating article: {str(e)}")
+
+    episode.article = article
+    db.commit()
+
+    logger.info(f"Generated article for episode {episode_id}: {len(article)} chars")
+
+    return {"article": article, "char_count": len(article)}
 
 
 # ===== Audio generation with progress tracking =====

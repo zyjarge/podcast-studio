@@ -22,6 +22,10 @@ class Episode(Base):
     script_prompt = Column(Text, default="")
     script = Column(Text, default="")  # 整期节目逐字稿
     audio_url = Column(String, default="")  # 生成的音频文件路径
+    notes = Column(Text, default="")  # 节目级备注，引导标题/图文生成方向
+    article = Column(Text, default="")  # 公众号图文正文（Markdown）
+    title_suggestions = Column(Text, default="")  # 候选标题列表（JSON 字符串）
+    cover_choice = Column(Text, default="")  # 封面方案选择（JSON 字符串）
     scheduled_date = Column(DateTime, nullable=True)  # 预计播出日期，与日历绑定
     created_at = Column(DateTime, default=datetime.utcnow)
     published_at = Column(DateTime, nullable=True)

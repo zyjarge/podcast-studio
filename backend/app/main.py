@@ -53,6 +53,22 @@ def _migrate_db():
             cursor.execute("ALTER TABLE episodes ADD COLUMN audio_url TEXT DEFAULT ''")
             logger.info("Migration: added episodes.audio_url column")
 
+        if "notes" not in ep_cols:
+            cursor.execute("ALTER TABLE episodes ADD COLUMN notes TEXT DEFAULT ''")
+            logger.info("Migration: added episodes.notes column")
+
+        if "article" not in ep_cols:
+            cursor.execute("ALTER TABLE episodes ADD COLUMN article TEXT DEFAULT ''")
+            logger.info("Migration: added episodes.article column")
+
+        if "title_suggestions" not in ep_cols:
+            cursor.execute("ALTER TABLE episodes ADD COLUMN title_suggestions TEXT DEFAULT ''")
+            logger.info("Migration: added episodes.title_suggestions column")
+
+        if "cover_choice" not in ep_cols:
+            cursor.execute("ALTER TABLE episodes ADD COLUMN cover_choice TEXT DEFAULT ''")
+            logger.info("Migration: added episodes.cover_choice column")
+
         conn.commit()
         conn.close()
     except Exception as e:
