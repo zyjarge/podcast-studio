@@ -149,22 +149,6 @@ export default function Dashboard() {
         </button>
       </div>
 
-      {/* 统计卡片 */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        <div className="bg-cream-100 rounded-2xl p-5 border border-cream-300 shadow-[0_1px_3px_rgba(45,42,36,0.06)]">
-          <p className="text-sm text-ink-50 mb-1">全部节目</p>
-          <p className="text-3xl font-display font-semibold text-ink-300">{stats.total}</p>
-        </div>
-        <div className="bg-cream-100 rounded-2xl p-5 border border-cream-300 shadow-[0_1px_3px_rgba(45,42,36,0.06)]">
-          <p className="text-sm text-ink-50 mb-1">编辑中</p>
-          <p className="text-3xl font-display font-semibold text-accent-gold">{stats.editing}</p>
-        </div>
-        <div className="bg-cream-100 rounded-2xl p-5 border border-cream-300 shadow-[0_1px_3px_rgba(45,42,36,0.06)]">
-          <p className="text-sm text-ink-50 mb-1">已发布</p>
-          <p className="text-3xl font-display font-semibold text-accent-sage">{stats.published}</p>
-        </div>
-      </div>
-
       {/* 首次使用三步引导卡 */}
       <AnimatePresence>
         {showOnboarding && (
@@ -244,16 +228,15 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 xl:grid-cols-[300px_minmax(0,1fr)] gap-6 items-start">
       {/* 全部节目面板：快速回看往期 */}
       <aside className="bg-cream-100 rounded-2xl border border-cream-300 shadow-[0_1px_3px_rgba(45,42,36,0.06)] overflow-hidden xl:sticky xl:top-8">
-        <div className="px-4 py-3 border-b border-cream-300 bg-cream-200 flex items-center justify-between">
+        <div className="px-4 py-3 border-b border-cream-300 bg-cream-200">
           <h2 className="text-sm font-semibold text-ink-300">全部节目</h2>
-          <span className="text-xs text-ink-50">{episodes.length} 期</span>
         </div>
         <div className="px-3 py-2 border-b border-cream-300 flex gap-1.5">
           {[
-            ['all', '全部'],
-            ['editing', '编辑中'],
-            ['published', '已发布'],
-          ].map(([k, label]) => (
+            ['all', '全部', stats.total],
+            ['editing', '编辑中', stats.editing],
+            ['published', '已发布', stats.published],
+          ].map(([k, label, count]) => (
             <button
               key={k}
               onClick={() => setStatusFilter(k)}
@@ -263,7 +246,7 @@ export default function Dashboard() {
                   : 'bg-cream-200 text-ink-50 hover:bg-cream-300 border border-cream-300'
               }`}
             >
-              {label}
+              {label} <span className="opacity-60">{count}</span>
             </button>
           ))}
         </div>
