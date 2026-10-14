@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, Check, Star, Search, Layers, LayoutGrid, ChevronDown, Loader2 } from 'lucide-react'
-import { useStore, setTopics } from '../mock/store'
-import { mockClusterTopics } from '../mock/api'
+import { newsApi, episodesApi, normalizeNews, humanizeError } from '../services/api'
+import { useToast } from './Toast'
 import StarRating from './StarRating'
 
 const SCORE_FILTERS = [
@@ -14,40 +14,88 @@ const SCORE_FILTERS = [
 
 const countChars = (text) => (text || '').replace(/\s/g, '').length
 
+/** 后端 topic {title, summary, news_ids} → 组件内部形状（代表报道 = 组内最高分） */
+function adaptTopics(rawTopics, newsList) {
+  const byId = Object.fromEntries(newsList.map((n) => [n.id, n]))
+  return (rawTopics || [])
+    .map((t) => {
+      const ids = (t.news_ids || []).filter((nid) => byId[nid])
+      if (ids.length === 0) return null
+      const members = ids.map((nid) => byId[nid])
+      const rep = members.reduce((a, b) => (b.score > a.score ? b : a), members[0])
+      return {
+        id: `topic-${ids[0]}`,
+        title: t.title,
+        summary: t.summary,
+        newsIds: ids,
+        representativeId: rep.id,
+        topScore: rep.score,
+        keywords: rep.keywords || [],
+      }
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.topScore - a.topScore)
+}
+
 /**
  * 选料抽屉（90vw 全屏弹窗）
  * 默认话题视图：AI 先把新闻池归纳成话题，用户按话题选料，免去逐条排重
  * props: open, onClose, episodeId, onAdd(newsIds)
  */
 export default function MaterialDrawer({ open, onClose, episodeId, onAdd }) {
-  const { news, episodes, topics, topicsDirty } = useStore()
+  const toast = useToast()
+  const [news, setNews] = useState([])
+  const [inEpisode, setInEpisode] = useState([])
+  const [topics, setTopics] = useState([])
   const [selected, setSelected] = useState([])
   const [minScore, setMinScore] = useState(75)
   const [keyword, setKeyword] = useState('')
   const [view, setView] = useState('topics') // 'topics' | 'list'
   const [clustering, setClustering] = useState(false)
   const [expandedTopic, setExpandedTopic] = useState(null)
+  // 话题缓存：新闻池没变（条数 + 最新一条 id 相同）时重开抽屉不重复聚类
+  const topicsSigRef = useRef('')
 
   const newsById = useMemo(() => Object.fromEntries(news.map((n) => [n.id, n])), [news])
-  const episode = episodes.find((e) => e.id === episodeId)
-  const inEpisode = episode?.newsIds || []
 
-  // 打开抽屉时自动归纳话题；新闻池有更新（topicsDirty）则重新归纳
+  // 打开抽屉时拉取新闻池 + 节目内已有素材；新闻池有更新则重新归纳话题
   useEffect(() => {
     if (!open) return
-    if (!topicsDirty && topics.length > 0) return
     let cancelled = false
-    setClustering(true)
-    mockClusterTopics().then((list) => {
-      if (cancelled) return
-      setTopics(list)
-      setClustering(false)
-    })
+    ;(async () => {
+      let normalized
+      try {
+        const [allNews, epNews] = await Promise.all([
+          newsApi.list({ limit: 200 }),
+          episodesApi.listNews(episodeId),
+        ])
+        if (cancelled) return
+        normalized = allNews.map(normalizeNews)
+        setNews(normalized)
+        setInEpisode(epNews.map((en) => en.news_id))
+      } catch (e) {
+        if (!cancelled) toast.error(humanizeError(e))
+        return
+      }
+      const sig = `${normalized.length}:${normalized[0]?.id ?? 0}`
+      if (sig === topicsSigRef.current && topics.length > 0) return
+      setClustering(true)
+      try {
+        const { topics: rawTopics } = await newsApi.clusterTopics()
+        if (cancelled) return
+        setTopics(adaptTopics(rawTopics, normalized))
+        topicsSigRef.current = sig
+      } catch (e) {
+        if (!cancelled) toast.error(humanizeError(e))
+      } finally {
+        if (!cancelled) setClustering(false)
+      }
+    })()
     return () => {
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, topicsDirty])
+  }, [open])
 
   // 话题视图：按话题最高分过滤 + 关键词搜索（话题名/组内新闻）
   const visibleTopics = useMemo(() => {

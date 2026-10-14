@@ -1,37 +1,67 @@
 import { useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Image as ImageIcon, RefreshCw, Download, Maximize2, Check, Loader2, X } from 'lucide-react'
-import { updateEpisode } from '../mock/store'
-import { mockGenerateCovers } from '../mock/api'
-import { COVER_RATIOS, buildCoverSvg, coverDataUri, downloadCoverPng } from '../mock/cover'
+import { episodesApi, parseJsonField, humanizeError } from '../services/api'
+import { COVER_RATIOS, COVER_PALETTES, LAYOUT_NAMES, buildCoverSvg, coverDataUri, downloadCoverPng, pickCoverVariants } from '../lib/cover'
 import { useToast } from './Toast'
 
 /**
- * 题图区块：根据本期素材生成公众号题图（mock：前端 SVG 拼装）
- * props: episode, episodeNews
+ * 题图区块：根据本期素材生成公众号题图（前端 SVG 排版，本地即时生成）
+ * 选择结果持久化到 episode.cover_choice（JSON：{paletteIdx, layout, ratio}）
+ * props: episode, episodeNews, onEpisodeChange
  */
-export default function CoverSection({ episode, episodeNews }) {
+export default function CoverSection({ episode, episodeNews, onEpisodeChange }) {
   const toast = useToast()
   const [generating, setGenerating] = useState(false)
   const [lightbox, setLightbox] = useState(false)
+
+  const savedChoice = useMemo(() => parseJsonField(episode.cover_choice, null), [episode.cover_choice])
+
+  // 进入页面时从 cover_choice 恢复；已选方案保证出现在变体列表里
+  const [variants, setVariants] = useState(() => {
+    if (!savedChoice || savedChoice.paletteIdx == null) return []
+    const chosen = {
+      paletteIdx: savedChoice.paletteIdx,
+      layout: savedChoice.layout ?? 0,
+      label: `${COVER_PALETTES[savedChoice.paletteIdx % COVER_PALETTES.length].name} · ${LAYOUT_NAMES[(savedChoice.layout ?? 0) % 3]}`,
+    }
+    const rest = pickCoverVariants().filter(
+      (v) => !(v.paletteIdx === chosen.paletteIdx && v.layout === chosen.layout)
+    )
+    return [chosen, ...rest].slice(0, 3)
+  })
+  const [cover, setCover] = useState(() =>
+    savedChoice && savedChoice.paletteIdx != null
+      ? { paletteIdx: savedChoice.paletteIdx, layout: savedChoice.layout ?? 0 }
+      : null
+  )
+  const [ratioKey, setRatioKey] = useState(savedChoice?.ratio || 'mp')
 
   const keywords = useMemo(
     () => [...new Set(episodeNews.flatMap((n) => n.keywords || []))].slice(0, 4),
     [episodeNews]
   )
-  const variants = episode.coverVariants || []
-  const cover = episode.cover || null
-  const ratioKey = episode.coverRatio || 'mp'
   const ratio = COVER_RATIOS.find((r) => r.key === ratioKey) || COVER_RATIOS[0]
 
   const svgOf = (params) =>
     buildCoverSvg({ title: episode.title, keywords, ...params, ratioKey })
 
+  /** 选择/比例变化持久化到 cover_choice（JSON 字符串） */
+  const persistChoice = async (choice) => {
+    try {
+      const updated = await episodesApi.update(episode.id, { cover_choice: JSON.stringify(choice) })
+      onEpisodeChange?.(updated)
+    } catch (e) {
+      toast.error(`保存失败：${humanizeError(e)}`)
+    }
+  }
+
   const runGenerate = async () => {
     setGenerating(true)
     try {
-      const list = await mockGenerateCovers()
-      updateEpisode(episode.id, { coverVariants: list })
+      // SVG 排版是本地即时能力；保留短暂 loading 让生成动画完整呈现
+      await new Promise((r) => setTimeout(r, 400))
+      setVariants(pickCoverVariants())
       toast.success('题图已生成，挑一版喜欢的')
     } finally {
       setGenerating(false)
@@ -39,8 +69,15 @@ export default function CoverSection({ episode, episodeNews }) {
   }
 
   const selectCover = (v) => {
-    updateEpisode(episode.id, { cover: { paletteIdx: v.paletteIdx, layout: v.layout } })
+    const next = { paletteIdx: v.paletteIdx, layout: v.layout }
+    setCover(next)
+    persistChoice({ ...next, ratio: ratioKey })
     toast.success('已选为本期题图')
+  }
+
+  const changeRatio = (key) => {
+    setRatioKey(key)
+    persistChoice({ ...(cover || {}), ratio: key })
   }
 
   const download = () => {
@@ -65,7 +102,7 @@ export default function CoverSection({ episode, episodeNews }) {
               {COVER_RATIOS.map((r) => (
                 <button
                   key={r.key}
-                  onClick={() => updateEpisode(episode.id, { coverRatio: r.key })}
+                  onClick={() => changeRatio(r.key)}
                   className={`px-2.5 h-7 rounded-lg text-xs font-medium transition-colors ${
                     ratioKey === r.key
                       ? 'bg-ink-300 text-cream-100'

@@ -11,10 +11,12 @@ import {
   X,
   Loader2,
   CalendarDays,
+  WifiOff,
 } from 'lucide-react'
-import { useStore, createEpisode, dismissOnboarding } from '../mock/store'
-import { mockFetchNews } from '../mock/api'
+import { episodesApi, newsApi, sourcesApi, settingsApi, humanizeError } from '../services/api'
 import { useToast } from '../components/Toast'
+
+const ONBOARDING_KEY = 'podcast-studio-onboarding-dismissed'
 
 const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六']
 
@@ -40,15 +42,53 @@ const todayTitle = () => {
 export default function Dashboard() {
   const navigate = useNavigate()
   const toast = useToast()
-  const { episodes, sources, settings, onboardingDismissed } = useStore()
+  const [episodes, setEpisodes] = useState([])
+  const [sources, setSources] = useState([])
+  const [envKeys, setEnvKeys] = useState({})
+  const [onboardingDismissed, setOnboardingDismissed] = useState(() => {
+    try {
+      return localStorage.getItem(ONBOARDING_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
   const [currentDate, setCurrentDate] = useState(new Date())
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const [starting, setStarting] = useState(false)
 
+  const load = async () => {
+    setLoading(true)
+    setLoadError('')
+    try {
+      const [eps, srcs, keys] = await Promise.all([
+        episodesApi.list(),
+        sourcesApi.list(),
+        settingsApi.getEnvKeys(),
+      ])
+      setEpisodes(eps)
+      setSources(srcs)
+      setEnvKeys(keys)
+    } catch (e) {
+      setLoadError(humanizeError(e))
+    } finally {
+      setLoading(false)
+    }
+  }
+
   useEffect(() => {
-    const t = setTimeout(() => setLoading(false), 350)
-    return () => clearTimeout(t)
+    load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  const dismissOnboarding = () => {
+    setOnboardingDismissed(true)
+    try {
+      localStorage.setItem(ONBOARDING_KEY, '1')
+    } catch {
+      // localStorage 不可用时静默降级
+    }
+  }
 
   const stats = {
     total: episodes.length,
@@ -56,23 +96,35 @@ export default function Dashboard() {
     published: episodes.filter((e) => e.status === 'published').length,
   }
 
-  const hasKeys = Boolean(settings.deepseekKey && settings.minimaxKey)
+  const hasKeys = Boolean(envKeys.DEEPSEEK_API_KEY && envKeys.MINIMAX_API_KEY)
   const hasSources = sources.some((s) => s.enabled)
-  const showOnboarding = !onboardingDismissed && (!hasKeys || !hasSources)
+  const showOnboarding = !onboardingDismissed && !loading && !loadError && (!hasKeys || !hasSources)
 
   // 开始今日节目：后台抓取 → 创建节目 → 进入详情并自动打开选料抽屉
-  const handleStartToday = () => {
+  const handleStartToday = async () => {
     if (starting) return
     setStarting(true)
     toast.info('正在抓取最新新闻…')
-    mockFetchNews().then(({ added, total }) => {
-      toast.success(added > 0 ? `已抓取 ${total} 条新闻，已自动评分` : `新闻池已是最新（${total} 条）`)
-    })
-    const episode = createEpisode({ title: todayTitle(), scheduled_date: new Date().toISOString() })
-    setTimeout(() => {
-      setStarting(false)
+    newsApi
+      .fetch()
+      .then((res) => {
+        const m = /新增\s*(\d+)\s*条/.exec(res?.message || '')
+        const added = m ? Number(m[1]) : 0
+        toast.success(added > 0 ? `已抓取 ${added} 条新闻，已自动评分` : '新闻池已是最新')
+      })
+      .catch((e) => toast.error(humanizeError(e)))
+    try {
+      const episode = await episodesApi.create({
+        title: todayTitle(),
+        scheduled_date: new Date().toISOString(),
+      })
+      // 新建节目直接进入"编辑中"状态
+      episodesApi.update(episode.id, { status: 'editing' }).catch(() => {})
       navigate(`/episode/${episode.id}?picker=1`)
-    }, 500)
+    } catch (e) {
+      toast.error(humanizeError(e))
+      setStarting(false)
+    }
   }
 
   const getLocalDateStr = (date) => {
@@ -149,6 +201,20 @@ export default function Dashboard() {
         </button>
       </div>
 
+      {/* 首次加载失败：错误态可重试，不留白屏 */}
+      {loadError && (
+        <div className="mb-6 flex flex-col items-center py-14 bg-cream-200 rounded-2xl border border-cream-300">
+          <WifiOff className="w-12 h-12 text-cream-500 mb-3" />
+          <p className="text-ink-50 mb-4">{loadError}</p>
+          <button
+            onClick={load}
+            className="flex items-center gap-2 px-5 h-10 bg-accent-coral text-cream-100 rounded-xl font-medium hover:bg-accent-coral/90 transition-colors"
+          >
+            重试
+          </button>
+        </div>
+      )}
+
       {/* 首次使用三步引导卡 */}
       <AnimatePresence>
         {showOnboarding && (
@@ -210,7 +276,7 @@ export default function Dashboard() {
       </AnimatePresence>
 
       {/* 非首次但无节目 */}
-      {!loading && episodes.length === 0 && !showOnboarding && (
+      {!loading && !loadError && episodes.length === 0 && !showOnboarding && (
         <div className="mb-6 flex flex-col items-center py-14 bg-cream-200 rounded-2xl border border-cream-300">
           <CalendarDays className="w-12 h-12 text-cream-500 mb-3" />
           <p className="text-ink-50 mb-4">今天还没有节目，现在开始一期？</p>
@@ -225,6 +291,7 @@ export default function Dashboard() {
       )}
 
       {/* 全部节目面板 + 日历（宽屏并排，面板在左） */}
+      {!loadError && (
       <div className="grid grid-cols-1 xl:grid-cols-[300px_minmax(0,1fr)] gap-6 items-start">
       {/* 全部节目面板：快速回看往期 */}
       <aside className="bg-cream-100 rounded-2xl border border-cream-300 shadow-[0_1px_3px_rgba(45,42,36,0.06)] overflow-hidden xl:sticky xl:top-8">
@@ -369,6 +436,7 @@ export default function Dashboard() {
         </div>
       </div>
       </div>
+      )}
     </div>
   )
 }

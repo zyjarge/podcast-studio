@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Search,
@@ -10,9 +10,9 @@ import {
   Check,
   Inbox,
   Filter,
+  WifiOff,
 } from 'lucide-react'
-import { useStore, getState, addNewsToEpisode } from '../mock/store'
-import { mockFetchNews } from '../mock/api'
+import { newsApi, sourcesApi, episodesApi, normalizeNews, humanizeError } from '../services/api'
 import { useToast } from '../components/Toast'
 import StarRating from '../components/StarRating'
 
@@ -35,7 +35,11 @@ const fmtNewsTime = (iso) => {
 
 export default function NewsPool() {
   const toast = useToast()
-  const { news, sources, episodes, lastFetchAt } = useStore()
+  const [news, setNews] = useState([])
+  const [sources, setSources] = useState([])
+  const [episodes, setEpisodes] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
 
   const [fetching, setFetching] = useState(false)
   const [keyword, setKeyword] = useState('')
@@ -44,6 +48,44 @@ export default function NewsPool() {
   const [selected, setSelected] = useState([])
   const [detailNews, setDetailNews] = useState(null)
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [epNewsCounts, setEpNewsCounts] = useState({}) // 节目选择器里"已有素材 N 条"
+
+  const load = async () => {
+    setLoadError('')
+    try {
+      const [newsList, sourceList, episodeList] = await Promise.all([
+        newsApi.list({ limit: 200 }),
+        sourcesApi.list(),
+        episodesApi.list(),
+      ])
+      setNews(newsList.map(normalizeNews))
+      setSources(sourceList)
+      setEpisodes(episodeList)
+    } catch (e) {
+      setLoadError(humanizeError(e))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // 打开节目选择器时，并行拉取各候选节目的素材数
+  useEffect(() => {
+    if (!pickerOpen) return
+    const candidates = episodes.filter((e) => e.status !== 'published')
+    Promise.all(
+      candidates.map((ep) =>
+        episodesApi
+          .listNews(ep.id)
+          .then((list) => [ep.id, list.length])
+          .catch(() => [ep.id, 0])
+      )
+    ).then((entries) => setEpNewsCounts(Object.fromEntries(entries)))
+  }, [pickerOpen, episodes])
 
   const enabledSources = sources.filter((s) => s.enabled)
   const checkedSources = activeSources === null ? enabledSources.map((s) => s.name) : activeSources
@@ -85,8 +127,13 @@ export default function NewsPool() {
     if (fetching) return
     setFetching(true)
     try {
-      const { added, total } = await mockFetchNews()
-      toast.success(added > 0 ? `已抓取 ${total} 条新闻，已自动评分` : `新闻池已是最新（${total} 条）`)
+      const res = await newsApi.fetch()
+      const m = /新增\s*(\d+)\s*条/.exec(res?.message || '')
+      const added = m ? Number(m[1]) : 0
+      toast.success(added > 0 ? `已抓取 ${added} 条新闻，已自动评分` : '新闻池已是最新')
+      await load()
+    } catch (e) {
+      toast.error(humanizeError(e))
     } finally {
       setFetching(false)
     }
@@ -96,15 +143,20 @@ export default function NewsPool() {
     setSelected((list) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]))
   }
 
-  const handleAddToEpisode = (episodeId) => {
-    const ep = getState().episodes.find((e) => e.id === episodeId)
-    addNewsToEpisode(episodeId, selected)
-    toast.success(`已加入「${ep?.title}」（${selected.length} 条）`)
-    setSelected([])
-    setPickerOpen(false)
+  const handleAddToEpisode = async (episodeId) => {
+    const ep = episodes.find((e) => e.id === episodeId)
+    try {
+      await episodesApi.addNews(episodeId, selected)
+      toast.success(`已加入「${ep?.title}」（${selected.length} 条）`)
+      setSelected([])
+      setPickerOpen(false)
+    } catch (e) {
+      toast.error(humanizeError(e))
+    }
   }
 
-  const lastFetchText = lastFetchAt ? fmtNewsTime(lastFetchAt).replace('今天 ', '') : '从未'
+  // 没有独立的"上次抓取"接口：用最新一条新闻的入库时间近似
+  const lastFetchText = news.length > 0 ? fmtNewsTime(news[0].created_at).replace('今天 ', '') : '从未'
 
   return (
     <div className="p-8 min-h-screen pb-28">
@@ -176,7 +228,23 @@ export default function NewsPool() {
       </div>
 
       {/* 内容区 */}
-      {news.length === 0 ? (
+      {loading ? (
+        <div className="flex flex-col items-center py-20 bg-cream-200 rounded-2xl border border-cream-300">
+          <Loader2 className="w-8 h-8 animate-spin text-accent-coral mb-3" />
+          <p className="text-sm text-ink-50">正在读取新闻池…</p>
+        </div>
+      ) : loadError ? (
+        <div className="flex flex-col items-center py-20 bg-cream-200 rounded-2xl border border-cream-300">
+          <WifiOff className="w-12 h-12 text-cream-500 mb-3" />
+          <p className="text-ink-50 mb-4">{loadError}</p>
+          <button
+            onClick={load}
+            className="px-5 h-10 rounded-xl bg-accent-coral text-cream-100 text-sm font-medium hover:bg-accent-coral/90 transition-colors"
+          >
+            重试
+          </button>
+        </div>
+      ) : news.length === 0 ? (
         <div className="flex flex-col items-center py-20 bg-cream-200 rounded-2xl border border-cream-300">
           <Inbox className="w-12 h-12 text-cream-500 mb-3" />
           <p className="text-ink-50 mb-4">新闻池还是空的，先抓一批看看</p>
@@ -394,7 +462,7 @@ export default function NewsPool() {
                           <div className="min-w-0">
                             <p className="text-sm font-medium text-ink-300 truncate">{ep.title}</p>
                             <p className="text-xs text-ink-50">
-                              已有素材 {ep.newsIds.length} 条
+                              已有素材 {epNewsCounts[ep.id] ?? '…'} 条
                               {ep.status === 'draft' ? ' · 未开始' : ' · 编辑中'}
                             </p>
                           </div>

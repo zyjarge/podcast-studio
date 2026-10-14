@@ -14,8 +14,6 @@ import {
   Volume2,
   Pencil,
   RefreshCw,
-  Play,
-  Pause,
   StickyNote,
   Check,
   Minus,
@@ -29,20 +27,15 @@ import {
   PenLine,
 } from 'lucide-react'
 import {
-  useStore,
-  updateEpisode,
-  addNewsToEpisode,
-  removeNewsFromEpisode,
-  restoreNewsToEpisode,
-  reorderEpisodeNews,
-  setNewsNote,
-  setEpisodeScript,
-  setEpisodeAudio,
-  publishEpisode,
-  setTitleSuggestions,
-} from '../mock/store'
-import { mockGenerateScript, mockGenerateAudio, mockGenerateTitles } from '../mock/api'
-import { buildEpisodeWav, downloadBlob, safeFilename } from '../mock/exporter'
+  episodesApi,
+  newsApi,
+  humanizeError,
+  joinEpisodeNews,
+  parseJsonField,
+  episodeAudioUrl,
+  ApiError,
+} from '../services/api'
+import { safeFilename } from '../lib/download'
 import { useToast } from '../components/Toast'
 import ConfirmDialog from '../components/ConfirmDialog'
 import CoverSection from '../components/CoverSection'
@@ -60,11 +53,33 @@ function parseScript(text) {
   return turns
 }
 
-const fmtTime = (sec) => {
-  const m = Math.floor(sec / 60)
-  const s = Math.floor(sec % 60)
-  return `${m}:${String(s).padStart(2, '0')}`
+/** 音频生成阶段 → 进度条文案/百分比（措辞见 doc/UX_COPY.md 3.2） */
+const AUDIO_STAGE_MAP = {
+  starting: { label: '正在准备…', base: 3 },
+  parsing: { label: '正在解析逐字稿…', base: 10 },
+  submitting: { label: '正在提交配音任务', from: 10, to: 20, dynamic: true },
+  processing: { label: '配音生成中…（这个步骤最久，可以离开页面）', from: 20, to: 78 },
+  downloading: { label: '正在下载音频片段…', from: 78, to: 90 },
+  merging: { label: '正在合并成完整节目…', base: 97 },
+  done: { label: '搞定，可以试听了 🎧', base: 100 },
 }
+
+const AUDIO_IN_FLIGHT = ['starting', 'parsing', 'submitting', 'processing', 'downloading', 'merging']
+
+function mapAudioProgress(p) {
+  const conf = AUDIO_STAGE_MAP[p?.stage] || { label: p?.message || '正在准备…', base: 0 }
+  let percent = conf.base ?? 0
+  if (conf.from != null) {
+    const frac = p?.total > 0 ? Math.min(1, (p.completed || 0) / p.total) : 0
+    percent = Math.round(conf.from + (conf.to - conf.from) * frac)
+  }
+  let label = conf.label
+  if (conf.dynamic) label = p?.total > 0 ? `${conf.label}（${p.total} 段）…` : `${conf.label}…`
+  return { stage: p?.stage || '', label, percent }
+}
+
+/** 标题仍是默认的"科技双响炮 · M月D日"格式时，认为用户未自定义标题 */
+const isDefaultTitle = (title) => /^科技双响炮 · \d{1,2}月\d{1,2}日$/.test(title || '')
 
 // ── 可拖拽的新闻手风琴卡片 ──
 function SortableNewsCard({ id, index, news, note, expanded, onToggle, onSaveNote, onRemove }) {
@@ -173,68 +188,17 @@ function SortableNewsCard({ id, index, news, note, expanded, onToggle, onSaveNot
   )
 }
 
-// ── 假播放器：定时器走进度 ──
-function FakePlayer({ duration }) {
-  const [playing, setPlaying] = useState(false)
-  const [progress, setProgress] = useState(0)
-  const timerRef = useRef(null)
-
-  useEffect(() => {
-    if (playing) {
-      timerRef.current = setInterval(() => {
-        setProgress((p) => {
-          if (p + 1 >= duration) {
-            setPlaying(false)
-            return duration
-          }
-          return p + 1
-        })
-      }, 1000)
-    }
-    return () => clearInterval(timerRef.current)
-  }, [playing, duration])
-
-  const pct = duration > 0 ? (progress / duration) * 100 : 0
-
+// ── 真实播放器：<audio controls> 播放后端合成的 MP3，样式贴原型卡片 ──
+function AudioPlayer({ src, onDuration }) {
   return (
     <div className="bg-cream-200 rounded-2xl border border-cream-300 p-4">
-      <div className="flex items-center gap-4">
-        <button
-          onClick={() => {
-            if (progress >= duration) setProgress(0)
-            setPlaying(!playing)
-          }}
-          className="w-12 h-12 rounded-full bg-accent-coral text-cream-100 flex items-center justify-center hover:bg-accent-coral/90 transition-colors shadow-sm shrink-0"
-        >
-          {playing ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
-        </button>
-        <div className="flex-1">
-          <div
-            className="h-1.5 rounded-full bg-cream-300 cursor-pointer group"
-            onClick={(e) => {
-              const rect = e.currentTarget.getBoundingClientRect()
-              const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width))
-              setProgress(Math.round(ratio * duration))
-            }}
-          >
-            <div
-              className="h-full rounded-full bg-accent-coral transition-[width] duration-200"
-              style={{ width: `${pct}%` }}
-            />
-          </div>
-          <div className="flex justify-between mt-1.5 text-xs text-ink-50 font-mono">
-            <span>{fmtTime(progress)}</span>
-            <span>{fmtTime(duration)}</span>
-          </div>
-        </div>
-        {playing && (
-          <div className="flex items-end gap-0.5 h-4 shrink-0">
-            {[1, 2, 3, 4, 5].map((i) => (
-              <span key={i} className="waveform-bar w-1 bg-accent-coral rounded-full" />
-            ))}
-          </div>
-        )}
-      </div>
+      <audio
+        controls
+        preload="metadata"
+        src={src}
+        className="w-full"
+        onLoadedMetadata={(e) => onDuration?.(Math.round(e.currentTarget.duration) || 0)}
+      />
     </div>
   )
 }
@@ -244,13 +208,66 @@ export default function EpisodeDetail() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const toast = useToast()
-  const { episodes, news } = useStore()
 
-  const episode = episodes.find((e) => e.id === id)
+  // 服务端数据
+  const [episode, setEpisode] = useState(null)
+  const [epNewsList, setEpNewsList] = useState([]) // EpisodeNews[]（含 EpisodeNews.id / order / notes）
+  const [newsById, setNewsById] = useState({})
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
+
+  const load = async () => {
+    setLoading(true)
+    setLoadError('')
+    try {
+      const [ep, epNews, allNews] = await Promise.all([
+        episodesApi.get(id),
+        episodesApi.listNews(id),
+        newsApi.list({ limit: 200 }),
+      ])
+      setEpisode(ep)
+      setEpNewsList(epNews)
+      setNewsById(Object.fromEntries(allNews.map((n) => [n.id, n])))
+    } catch (e) {
+      setLoadError(humanizeError(e))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id])
+
+  // 节目新闻（按 order 排序，join 全量新闻得到正文/评分）
   const episodeNews = useMemo(() => {
-    if (!episode) return []
-    return episode.newsIds.map((nid) => news.find((n) => n.id === nid)).filter(Boolean)
-  }, [episode, news])
+    const sorted = [...epNewsList].sort((a, b) => a.order - b.order)
+    return joinEpisodeNews(sorted, newsById)
+  }, [epNewsList, newsById])
+  const newsIds = useMemo(() => episodeNews.map((n) => n.id), [episodeNews])
+
+  /** 局部更新节目字段（PUT 成功后同步本地状态） */
+  const patchEpisode = async (patch, { silent = false } = {}) => {
+    try {
+      const updated = await episodesApi.update(id, patch)
+      setEpisode(updated)
+      if (!silent) toast.success('已保存')
+      return updated
+    } catch (e) {
+      toast.error(`保存失败：${humanizeError(e)}。你的内容还在编辑框里，不会丢失`)
+      return null
+    }
+  }
+
+  /** 重新拉取节目内新闻列表（增删/排序/撤销后同步） */
+  const refreshEpisodeNews = async () => {
+    try {
+      setEpNewsList(await episodesApi.listNews(id))
+    } catch (e) {
+      toast.error(humanizeError(e))
+    }
+  }
 
   // 内联编辑
   const [titleDraft, setTitleDraft] = useState('')
@@ -307,21 +324,105 @@ export default function EpisodeDetail() {
   const [audioGenerating, setAudioGenerating] = useState(false)
   const [audioProgress, setAudioProgress] = useState({ stage: '', label: '', percent: 0 })
   const [confirmDeleteAudio, setConfirmDeleteAudio] = useState(false)
-  const [exporting, setExporting] = useState(false)
+  const [audioDuration, setAudioDuration] = useState(0)
+  const [audioVersion, setAudioVersion] = useState(0) // 重新生成后 bump，避免浏览器缓存旧 MP3
+  const pollRef = useRef(null)
+  // 只在本次页面生命周期内见过"进行中"时，done/error 才弹 toast 并刷新——
+  // 避免打开一期早就生成完的节目时误报"音频已生成"
+  const sawInFlightRef = useRef(false)
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
 
-  if (!episode) {
+  const stopPolling = () => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current)
+      pollRef.current = null
+    }
+  }
+
+  // 轮询一次音频进度；进行中会刷新进度条，done/error 且本次见过进行中时才收尾提示
+  const tickAudio = async () => {
+    try {
+      const raw = await episodesApi.getAudioProgress(id)
+      if (AUDIO_IN_FLIGHT.includes(raw.stage)) {
+        sawInFlightRef.current = true
+        setAudioGenerating(true)
+        setAudioProgress(mapAudioProgress(raw))
+        return
+      }
+      if (raw.stage === 'done') {
+        stopPolling()
+        if (sawInFlightRef.current) {
+          sawInFlightRef.current = false
+          setAudioProgress(mapAudioProgress(raw))
+          setAudioGenerating(false)
+          setAudioVersion((v) => v + 1)
+          // 音频落库后刷新 episode（拿到 audio_url）
+          const ep = await episodesApi.get(id).catch(() => null)
+          if (ep) setEpisode(ep)
+          toast.success('音频已生成，可以试听了')
+        }
+      } else if (raw.stage === 'error') {
+        stopPolling()
+        if (sawInFlightRef.current) {
+          sawInFlightRef.current = false
+          setAudioGenerating(false)
+          toast.error(`合成失败：${raw.error || '未知原因'}，请重试`)
+        }
+      } else {
+        // idle：无事发生，停轮询
+        stopPolling()
+      }
+    } catch {
+      // 轮询失败（后端短暂不可达）不打断，下个 tick 再试
+    }
+  }
+
+  const startAudioPolling = () => {
+    stopPolling()
+    pollRef.current = setInterval(tickAudio, 2000)
+  }
+
+  // 进入页面先查一次：进行中则恢复进度条并持续轮询
+  useEffect(() => {
+    if (!episode) return
+    sawInFlightRef.current = false
+    tickAudio()
+    startAudioPolling()
+    return () => stopPolling()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, episode?.id])
+
+  if (loading) {
+    return (
+      <div className="p-8 min-h-screen flex flex-col items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-accent-coral mb-3" />
+        <p className="text-sm text-ink-50">正在读取节目…</p>
+      </div>
+    )
+  }
+
+  if (loadError || !episode) {
     return (
       <div className="p-8 min-h-screen flex flex-col items-center justify-center">
         <Newspaper className="w-12 h-12 text-cream-500 mb-3" />
-        <p className="text-ink-50 mb-4">这期节目不存在，可能已被删除</p>
-        <button
-          onClick={() => navigate('/')}
-          className="px-5 h-10 rounded-xl bg-accent-coral text-cream-100 text-sm font-medium hover:bg-accent-coral/90"
-        >
-          返回节目列表
-        </button>
+        <p className="text-ink-50 mb-4">{loadError || '这期节目不存在，可能已被删除'}</p>
+        <div className="flex items-center gap-3">
+          {loadError && (
+            <button
+              onClick={load}
+              className="px-5 h-10 rounded-xl bg-cream-200 border border-cream-300 text-sm text-ink-300 hover:bg-cream-300 transition-colors"
+            >
+              重试
+            </button>
+          )}
+          <button
+            onClick={() => navigate('/')}
+            className="px-5 h-10 rounded-xl bg-accent-coral text-cream-100 text-sm font-medium hover:bg-accent-coral/90"
+          >
+            返回节目列表
+          </button>
+        </div>
       </div>
     )
   }
@@ -329,33 +430,38 @@ export default function EpisodeDetail() {
   const chars = countChars(episode.script)
   const estMinutes = Math.ceil(chars / 150)
   const published = episode.status === 'published'
+  const hasAudio = Boolean(episode.audio_url)
+  const audioUrl = `${episodeAudioUrl(id)}${audioVersion ? `?v=${audioVersion}` : ''}`
+  const titleSuggestions = parseJsonField(episode.title_suggestions, [])
 
   const saveTitle = () => {
     const v = titleDraft.trim()
     if (v && v !== episode.title) {
-      updateEpisode(id, { title: v, titleCustom: true })
-      toast.success('已保存')
+      patchEpisode({ title: v })
     } else {
       setTitleDraft(episode.title)
     }
   }
 
-  // AI 标题建议：随逐字稿产出；标题还没被确认过时自动展开面板
+  // AI 标题建议：随逐字稿产出；标题还是默认格式时自动展开面板
   const loadTitles = async (autoOpen = false) => {
     if (episodeNews.length === 0) return
     if (autoOpen) setTitlePanelOpen(true)
     setTitleLoading(true)
     try {
-      const list = await mockGenerateTitles(episodeNews)
-      setTitleSuggestions(id, list)
+      const { titles } = await episodesApi.generateTitles(id)
+      setEpisode((ep) => ({ ...ep, title_suggestions: JSON.stringify(titles || []) }))
       setTitleUnread(!autoOpen)
+    } catch (e) {
+      toast.error(`生成失败：${humanizeError(e)}`)
+      if (autoOpen) setTitlePanelOpen(false)
     } finally {
       setTitleLoading(false)
     }
   }
 
   const applyTitleSuggestion = (s) => {
-    updateEpisode(id, { title: s.text, titleCustom: true })
+    patchEpisode({ title: s.text })
     setTitleDraft(s.text)
     setAppliedTitle(s.text)
     setTitleUnread(false)
@@ -364,36 +470,65 @@ export default function EpisodeDetail() {
 
   const saveDate = () => {
     if (dateDraft && dateDraft !== (episode.scheduled_date || '').slice(0, 10)) {
-      updateEpisode(id, { scheduled_date: new Date(`${dateDraft}T12:00:00`).toISOString() })
-      toast.success('已保存')
+      patchEpisode({ scheduled_date: new Date(`${dateDraft}T12:00:00`).toISOString() })
     }
   }
 
   const saveNotes = () => {
     if (notesDraft !== (episode.notes || '')) {
-      updateEpisode(id, { notes: notesDraft })
-      toast.success('已保存')
+      patchEpisode({ notes: notesDraft })
     }
   }
 
   const handleDragEnd = (event) => {
     const { active, over } = event
     if (!over || active.id === over.id) return
-    const oldIndex = episode.newsIds.indexOf(active.id)
-    const newIndex = episode.newsIds.indexOf(over.id)
-    reorderEpisodeNews(id, arrayMove(episode.newsIds, oldIndex, newIndex))
-  }
-
-  const handleRemoveNews = (newsId) => {
-    const snapshot = removeNewsFromEpisode(id, newsId)
-    toast.undo('已移除该新闻', () => {
-      restoreNewsToEpisode(id, snapshot)
+    const oldIndex = newsIds.indexOf(active.id)
+    const newIndex = newsIds.indexOf(over.id)
+    const nextIds = arrayMove(newsIds, oldIndex, newIndex)
+    // 乐观更新本地顺序，再持久化（reorder 的 id 是 EpisodeNews 的 id）
+    setEpNewsList((list) => {
+      const byNewsId = Object.fromEntries(list.map((en) => [en.news_id, en]))
+      return nextIds.map((nid, i) => ({ ...byNewsId[nid], order: i }))
+    })
+    const orders = nextIds.map((nid, i) => {
+      const en = epNewsList.find((x) => x.news_id === nid)
+      return { id: en.id, order: i }
+    })
+    episodesApi.reorderNews(id, orders).catch(async (e) => {
+      toast.error(humanizeError(e))
+      await refreshEpisodeNews()
     })
   }
 
-  const handleAddNews = (newsIds) => {
-    addNewsToEpisode(id, newsIds)
-    toast.success(`已加入「${episode.title}」（${newsIds.length} 条）`)
+  const handleRemoveNews = async (newsId) => {
+    const snapshot = epNewsList.find((en) => en.news_id === newsId)
+    setEpNewsList((list) => list.filter((en) => en.news_id !== newsId))
+    try {
+      await episodesApi.softDeleteNews(id, newsId)
+      toast.undo('已移除该新闻', async () => {
+        try {
+          await episodesApi.restoreNews(id, newsId)
+          await refreshEpisodeNews()
+        } catch (e) {
+          toast.error(humanizeError(e))
+        }
+      })
+    } catch (e) {
+      // 失败则还原
+      if (snapshot) setEpNewsList((list) => [...list, snapshot].sort((a, b) => a.order - b.order))
+      toast.error(humanizeError(e))
+    }
+  }
+
+  const handleAddNews = async (newIds) => {
+    try {
+      await episodesApi.addNews(id, newIds)
+      await refreshEpisodeNews()
+      toast.success(`已加入「${episode.title}」（${newIds.length} 条）`)
+    } catch (e) {
+      toast.error(humanizeError(e))
+    }
   }
 
   const runGenerateScript = async () => {
@@ -401,13 +536,18 @@ export default function EpisodeDetail() {
     setScriptGenerating(true)
     setScriptStage('正在阅读素材…')
     setScriptEditing(false)
+    // 真实生成是单个长请求（约 30-60 秒），阶段文案按节奏切换
+    const stageTimer = setTimeout(() => setScriptStage('正在撰写对话…'), 5000)
     try {
-      const script = await mockGenerateScript(episodeNews, setScriptStage)
-      setEpisodeScript(id, script)
+      const { script } = await episodesApi.generateScript(id, episode.notes || '')
+      setEpisode((ep) => ({ ...ep, script }))
       toast.success(`逐字稿已生成，共 ${countChars(script).toLocaleString('zh-CN')} 字`)
       // 标题建议随稿产出（不阻塞主流程）
-      loadTitles(!episode.titleCustom)
+      loadTitles(isDefaultTitle(episode.title))
+    } catch (e) {
+      toast.error(`生成失败：${humanizeError(e)}。素材和备注都还在，点击重试。`)
     } finally {
+      clearTimeout(stageTimer)
       setScriptGenerating(false)
       setScriptStage('')
     }
@@ -416,32 +556,27 @@ export default function EpisodeDetail() {
   const runGenerateAudio = async () => {
     setAudioGenerating(true)
     setAudioProgress({ stage: 'starting', label: '正在准备…', percent: 0 })
+    sawInFlightRef.current = true
+    // 重启轮询（之前的轮询可能已在 done/error/idle 时停掉）
+    startAudioPolling()
     try {
-      const audio = await mockGenerateAudio(episode.script, setAudioProgress)
-      setEpisodeAudio(id, audio)
-      toast.success('音频已生成，可以试听了')
-    } finally {
-      setAudioGenerating(false)
+      await episodesApi.generateAudio(id)
+      // 立即查一次进度，不等下一个 tick
+      tickAudio()
+    } catch (e) {
+      // 409 = 后端已有任务在跑：视为进行中，继续轮询即可
+      if (!(e instanceof ApiError && e.status === 409)) {
+        sawInFlightRef.current = false
+        setAudioGenerating(false)
+        toast.error(`合成失败：${humanizeError(e)}`)
+      }
     }
   }
 
   const handlePublish = () => {
-    publishEpisode(id)
-    toast.success('已发布 🎉')
-  }
-
-  // 导出音频：正式版直接下载后端 MP3；原型在浏览器合成 WAV 样片
-  const handleExport = async () => {
-    if (!episode.audio || exporting) return
-    setExporting(true)
-    try {
-      await new Promise((r) => setTimeout(r, 300))
-      const blob = buildEpisodeWav(episode.script, episode.audio.duration)
-      downloadBlob(blob, `${safeFilename(episode.title)}.wav`)
-      toast.success('已开始下载')
-    } finally {
-      setExporting(false)
-    }
+    patchEpisode({ status: 'published' }, { silent: true }).then((updated) => {
+      if (updated) toast.success('已发布 🎉')
+    })
   }
 
   const formatDuration = (sec) => {
@@ -451,7 +586,7 @@ export default function EpisodeDetail() {
   }
 
   // MP3 128kbps ≈ 0.96 MB/分钟，用于导出卡片的大小预估
-  const estSizeMB = episode.audio ? Math.max(1, Math.round((episode.audio.duration * 0.016))) : 0
+  const estSizeMB = audioDuration ? Math.max(1, Math.round(audioDuration * 0.016)) : 0
 
   const stagePill = (done, label) => (
     <span className="inline-flex items-center gap-1">
@@ -489,7 +624,7 @@ export default function EpisodeDetail() {
                 const next = !titlePanelOpen
                 setTitlePanelOpen(next)
                 setTitleUnread(false)
-                if (next && (episode.titleSuggestions || []).length === 0) loadTitles(false)
+                if (next && titleSuggestions.length === 0) loadTitles(false)
               }}
               disabled={!episode.script}
               title={episode.script ? 'AI 标题建议' : '生成逐字稿后，AI 可以推荐标题'}
@@ -539,7 +674,7 @@ export default function EpisodeDetail() {
                   ) : (
                     <>
                       <div className="space-y-1.5">
-                        {(episode.titleSuggestions || []).map((s) => {
+                        {titleSuggestions.map((s) => {
                           const applied = appliedTitle === s.text && episode.title === s.text
                           return (
                             <button
@@ -642,7 +777,7 @@ export default function EpisodeDetail() {
             <span className="text-cream-400">·</span>
             {stagePill(Boolean(episode.script), '逐字稿')}
             <span className="text-cream-400">·</span>
-            {stagePill(Boolean(episode.audio), '音频')}
+            {stagePill(hasAudio, '音频')}
           </div>
         </div>
 
@@ -662,19 +797,27 @@ export default function EpisodeDetail() {
           ) : (
             <>
               <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                <SortableContext items={episode.newsIds} strategy={verticalListSortingStrategy}>
+                <SortableContext items={newsIds} strategy={verticalListSortingStrategy}>
                   {episodeNews.map((n, i) => (
                     <SortableNewsCard
                       key={n.id}
                       id={n.id}
                       index={i}
                       news={n}
-                      note={episode.newsNotes[n.id]}
+                      note={n.note}
                       expanded={expandedId === n.id}
                       onToggle={() => setExpandedId(expandedId === n.id ? null : n.id)}
-                      onSaveNote={(note) => {
-                        setNewsNote(id, n.id, note)
-                        toast.success('已保存')
+                      onSaveNote={async (note) => {
+                        // 先本地生效，再持久化
+                        setEpNewsList((list) =>
+                          list.map((en) => (en.news_id === n.id ? { ...en, notes: note } : en))
+                        )
+                        try {
+                          await episodesApi.updateNewsNotes(id, n.id, note)
+                          toast.success('已保存')
+                        } catch (e) {
+                          toast.error(`保存失败：${humanizeError(e)}。你的内容还在编辑框里，不会丢失`)
+                        }
                       }}
                       onRemove={() => handleRemoveNews(n.id)}
                     />
@@ -765,6 +908,7 @@ export default function EpisodeDetail() {
               episode={episode}
               episodeNews={episodeNews}
               onGeneratingChange={setArticleGenerating}
+              onEpisodeChange={setEpisode}
             />
           ) : scriptGenerating ? (
             <div>
@@ -795,10 +939,9 @@ export default function EpisodeDetail() {
                   取消
                 </button>
                 <button
-                  onClick={() => {
-                    setEpisodeScript(id, scriptDraft)
-                    setScriptEditing(false)
-                    toast.success('已保存')
+                  onClick={async () => {
+                    const updated = await patchEpisode({ script: scriptDraft })
+                    if (updated) setScriptEditing(false)
                   }}
                   className="px-4 h-9 rounded-xl bg-accent-coral text-cream-100 text-sm font-medium hover:bg-accent-coral/90 transition-colors"
                 >
@@ -857,7 +1000,7 @@ export default function EpisodeDetail() {
               <Volume2 className="w-4 h-4 text-accent-coral" />
               <h2 className="text-base font-semibold text-ink-300">音频</h2>
             </div>
-            {episode.audio && !audioGenerating && (
+            {hasAudio && !audioGenerating && (
               <button
                 onClick={runGenerateAudio}
                 className="flex items-center gap-1.5 px-3 h-9 rounded-xl bg-cream-200 border border-cream-300 text-sm text-ink-300 hover:bg-cream-300 transition-colors"
@@ -884,9 +1027,9 @@ export default function EpisodeDetail() {
               </div>
               <p className="text-xs text-ink-50 mt-2">合成中… 耗时操作会持续推进，你可以先整理左侧的新闻列表</p>
             </div>
-          ) : episode.audio ? (
+          ) : hasAudio ? (
             <div className="space-y-4">
-              <FakePlayer duration={episode.audio.duration} />
+              <AudioPlayer src={audioUrl} onDuration={setAudioDuration} />
               {/* 导出卡片 */}
               <div className="rounded-xl border border-cream-300 bg-cream-200 px-4 py-3">
                 <div className="flex items-center gap-3">
@@ -896,21 +1039,17 @@ export default function EpisodeDetail() {
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-ink-300 truncate">{safeFilename(episode.title)}.mp3</p>
                     <p className="text-xs text-ink-50">
-                      {formatDuration(episode.audio.duration)} · 约 {estSizeMB} MB · MP3
+                      {audioDuration ? `${formatDuration(audioDuration)} · 约 ${estSizeMB} MB · MP3` : 'MP3'}
                     </p>
                   </div>
-                  <button
-                    onClick={handleExport}
-                    disabled={exporting}
-                    className="flex items-center gap-1.5 px-4 h-9 rounded-xl bg-ink-300 text-cream-100 text-sm font-medium hover:bg-ink-200 transition-colors disabled:opacity-50 shrink-0"
+                  <a
+                    href={audioUrl}
+                    download={`${safeFilename(episode.title)}.mp3`}
+                    className="flex items-center gap-1.5 px-4 h-9 rounded-xl bg-ink-300 text-cream-100 text-sm font-medium hover:bg-ink-200 transition-colors shrink-0"
                   >
-                    {exporting ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <Download className="w-3.5 h-3.5" />
-                    )}
-                    {exporting ? '导出中…' : '导出音频'}
-                  </button>
+                    <Download className="w-3.5 h-3.5" />
+                    导出音频
+                  </a>
                 </div>
                 <p className="text-xs text-ink-50 mt-2">可直接上传到公众号、小宇宙、喜马拉雅等平台</p>
               </div>
@@ -956,7 +1095,7 @@ export default function EpisodeDetail() {
         </section>
 
         {/* 题图 */}
-        <CoverSection episode={episode} episodeNews={episodeNews} />
+        <CoverSection episode={episode} episodeNews={episodeNews} onEpisodeChange={setEpisode} />
           </div>
         </div>
       </div>
@@ -985,10 +1124,16 @@ export default function EpisodeDetail() {
         title="删除已生成的音频？"
         body="逐字稿会保留，删除后可以重新合成。"
         confirmText="删除"
-        onConfirm={() => {
-          setEpisodeAudio(id, null)
+        onConfirm={async () => {
           setConfirmDeleteAudio(false)
-          toast.success('已删除音频')
+          try {
+            await episodesApi.deleteAudio(id)
+            setEpisode((ep) => ({ ...ep, audio_url: '' }))
+            setAudioDuration(0)
+            toast.success('已删除音频')
+          } catch (e) {
+            toast.error(humanizeError(e))
+          }
         }}
         onCancel={() => setConfirmDeleteAudio(false)}
       />

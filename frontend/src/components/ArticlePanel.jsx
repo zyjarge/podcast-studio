@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   PenLine,
@@ -11,10 +11,9 @@ import {
   X,
   Pencil,
 } from 'lucide-react'
-import { updateEpisode } from '../mock/store'
-import { mockGenerateArticle } from '../mock/api'
-import { ARTICLE_TEMPLATES, parseArticle, buildArticleImage, downloadArticlePng, coverDataUri } from '../mock/articleImage'
-import { safeFilename } from '../mock/exporter'
+import { episodesApi, humanizeError } from '../services/api'
+import { ARTICLE_TEMPLATES, parseArticle, buildArticleImage, downloadArticlePng, coverDataUri } from '../lib/articleImage'
+import { safeFilename } from '../lib/download'
 import { useToast } from './Toast'
 import ConfirmDialog from './ConfirmDialog'
 
@@ -50,9 +49,9 @@ function ArticlePreview({ md }) {
 
 /**
  * 图文正文面板（逐字稿 tab 的并列内容）
- * props: episode, episodeNews, onGeneratingChange(bool)
+ * props: episode, episodeNews, onGeneratingChange(bool), onEpisodeChange(episode)
  */
-export default function ArticlePanel({ episode, episodeNews, onGeneratingChange }) {
+export default function ArticlePanel({ episode, episodeNews, onGeneratingChange, onEpisodeChange }) {
   const toast = useToast()
   const [generating, setGenerating] = useState(false)
   const [stage, setStage] = useState('')
@@ -61,9 +60,11 @@ export default function ArticlePanel({ episode, episodeNews, onGeneratingChange 
   const [editDraft, setEditDraft] = useState('')
   const [confirmRegen, setConfirmRegen] = useState(false)
   const [lightbox, setLightbox] = useState(false)
+  const stageTimerRef = useRef(null)
 
-  const article = episode.article
-  const templateKey = episode.articleTemplate || 'magazine'
+  const article = episode.article || ''
+  // 排版模板是纯前端选择，不入库
+  const [templateKey, setTemplateKey] = useState('magazine')
   const image = useMemo(
     () => (article ? buildArticleImage(article, templateKey) : null),
     [article, templateKey]
@@ -79,11 +80,16 @@ export default function ArticlePanel({ episode, episodeNews, onGeneratingChange 
     setEditing(false)
     setGen(true)
     setStage('正在提炼素材要点…')
+    // 真实生成是单个长请求，阶段文案按节奏切换
+    stageTimerRef.current = setTimeout(() => setStage('正在撰写正文…'), 4000)
     try {
-      const md = await mockGenerateArticle(episodeNews, setStage)
-      updateEpisode(episode.id, { article: md })
+      const { article: md } = await episodesApi.generateArticle(episode.id)
+      onEpisodeChange?.({ ...episode, article: md })
       toast.success(`图文正文已生成，共 ${md.replace(/\s/g, '').length.toLocaleString('zh-CN')} 字`)
+    } catch (e) {
+      toast.error(`生成失败：${humanizeError(e)}。素材和备注都还在，点击重试。`)
     } finally {
+      clearTimeout(stageTimerRef.current)
       setGen(false)
       setStage('')
     }
@@ -222,10 +228,15 @@ export default function ArticlePanel({ episode, episodeNews, onGeneratingChange 
                 取消
               </button>
               <button
-                onClick={() => {
-                  updateEpisode(episode.id, { article: editDraft })
-                  setEditing(false)
-                  toast.success('已保存')
+                onClick={async () => {
+                  try {
+                    const updated = await episodesApi.update(episode.id, { article: editDraft })
+                    onEpisodeChange?.(updated)
+                    setEditing(false)
+                    toast.success('已保存')
+                  } catch (e) {
+                    toast.error(`保存失败：${humanizeError(e)}。你的内容还在编辑框里，不会丢失`)
+                  }
                 }}
                 className="px-4 h-9 rounded-xl bg-accent-coral text-cream-100 text-sm font-medium hover:bg-accent-coral/90 transition-colors"
               >
@@ -248,7 +259,7 @@ export default function ArticlePanel({ episode, episodeNews, onGeneratingChange 
               return (
                 <button
                   key={tpl.key}
-                  onClick={() => updateEpisode(episode.id, { articleTemplate: tpl.key })}
+                  onClick={() => setTemplateKey(tpl.key)}
                   className={`relative rounded-xl overflow-hidden border-2 transition-all text-left ${
                     active ? 'border-accent-coral shadow-md' : 'border-cream-300 hover:border-cream-400'
                   }`}

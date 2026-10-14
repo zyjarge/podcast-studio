@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Rss,
@@ -13,17 +13,14 @@ import {
   Eye,
   EyeOff,
   CheckCircle2,
-  RotateCcw,
 } from 'lucide-react'
 import {
-  useStore,
-  addSource,
-  updateSource,
-  removeSource,
-  updateSettings,
-  resetDemo,
-} from '../mock/store'
-import { mockFetchSource, mockVerifyKeys, mockDelay } from '../mock/api'
+  sourcesApi,
+  newsApi,
+  rssParserApi,
+  settingsApi,
+  humanizeError,
+} from '../services/api'
 import { useToast } from '../components/Toast'
 import ConfirmDialog from '../components/ConfirmDialog'
 
@@ -49,7 +46,8 @@ function Switch({ checked, onChange }) {
 // ── RSS 源 ──
 function RssTab() {
   const toast = useToast()
-  const { sources } = useStore()
+  const [sources, setSources] = useState([])
+  const [loadingSources, setLoadingSources] = useState(true)
   const [form, setForm] = useState({ name: '', url: '' })
   const [adding, setAdding] = useState(false)
   const [editing, setEditing] = useState(null) // {id, name, url}
@@ -57,28 +55,79 @@ function RssTab() {
   const [fetchingId, setFetchingId] = useState(null)
   const [fetchingAll, setFetchingAll] = useState(false)
 
+  const loadSources = async () => {
+    try {
+      setSources(await sourcesApi.list())
+    } catch (e) {
+      toast.error(humanizeError(e))
+    } finally {
+      setLoadingSources(false)
+    }
+  }
+
+  useEffect(() => {
+    loadSources()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // URL 失焦且名称为空时，解析 RSS 标题自动补上名称
+  const handleUrlBlur = async () => {
+    const url = form.url.trim()
+    if (!url || form.name.trim()) return
+    try {
+      const { title } = await rssParserApi.parseUrl(url)
+      if (title) setForm((f) => (f.name.trim() ? f : { ...f, name: title }))
+    } catch {
+      // 解析失败静默降级：名称仍由用户手填
+    }
+  }
+
   const handleAdd = async () => {
     if (!form.name.trim() || !form.url.trim()) return
     setAdding(true)
-    await mockDelay()
-    addSource({ name: form.name.trim(), url: form.url.trim() })
-    setForm({ name: '', url: '' })
-    setAdding(false)
-    toast.success('已保存')
+    try {
+      await sourcesApi.create({ name: form.name.trim(), url: form.url.trim(), enabled: true })
+      setForm({ name: '', url: '' })
+      await loadSources()
+      toast.success('已保存')
+    } catch (e) {
+      toast.error(humanizeError(e))
+    } finally {
+      setAdding(false)
+    }
   }
 
   const handleFetchOne = async (source) => {
     setFetchingId(source.id)
-    await mockFetchSource()
-    setFetchingId(null)
-    toast.success(`已抓取 ${source.name} 的新闻，已自动评分`)
+    try {
+      await newsApi.fetch(source.id)
+      toast.success(`已抓取 ${source.name} 的新闻，已自动评分`)
+    } catch (e) {
+      toast.error(humanizeError(e))
+    } finally {
+      setFetchingId(null)
+    }
   }
 
   const handleFetchAll = async () => {
     setFetchingAll(true)
-    await mockFetchSource()
-    setFetchingAll(false)
-    toast.success('已抓取全部启用源的新闻，已自动评分')
+    try {
+      await newsApi.fetch()
+      toast.success('已抓取全部启用源的新闻，已自动评分')
+    } catch (e) {
+      toast.error(humanizeError(e))
+    } finally {
+      setFetchingAll(false)
+    }
+  }
+
+  const handleToggle = async (s) => {
+    try {
+      await sourcesApi.update(s.id, { enabled: !s.enabled })
+      setSources((list) => list.map((x) => (x.id === s.id ? { ...x, enabled: !s.enabled } : x)))
+    } catch (e) {
+      toast.error(humanizeError(e))
+    }
   }
 
   const inputCls =
@@ -98,6 +147,12 @@ function RssTab() {
         </button>
       </div>
 
+      {loadingSources ? (
+        <div className="flex items-center justify-center gap-2 py-10 text-sm text-ink-50">
+          <Loader2 className="w-4 h-4 animate-spin" />
+          正在读取 RSS 源…
+        </div>
+      ) : (
       <ul className="space-y-3">
         {sources.map((s) => (
           <li
@@ -134,10 +189,11 @@ function RssTab() {
             >
               <Trash2 className="w-4 h-4" />
             </button>
-            <Switch checked={s.enabled} onChange={() => updateSource(s.id, { enabled: !s.enabled })} />
+            <Switch checked={s.enabled} onChange={() => handleToggle(s)} />
           </li>
         ))}
       </ul>
+      )}
 
       {/* 新增源 */}
       <div className="bg-cream-200 rounded-2xl border border-cream-300 p-4">
@@ -152,6 +208,7 @@ function RssTab() {
           <input
             value={form.url}
             onChange={(e) => setForm({ ...form, url: e.target.value })}
+            onBlur={handleUrlBlur}
             placeholder="RSS / API 地址"
             className={inputCls}
           />
@@ -214,10 +271,14 @@ function RssTab() {
                 </button>
                 <button
                   onClick={async () => {
-                    await mockDelay()
-                    updateSource(editing.id, { name: editing.name.trim(), url: editing.url.trim() })
-                    setEditing(null)
-                    toast.success('已保存')
+                    try {
+                      await sourcesApi.update(editing.id, { name: editing.name.trim(), url: editing.url.trim() })
+                      setEditing(null)
+                      await loadSources()
+                      toast.success('已保存')
+                    } catch (e) {
+                      toast.error(humanizeError(e))
+                    }
                   }}
                   disabled={!editing.name.trim() || !editing.url.trim()}
                   className="px-4 h-10 rounded-xl bg-accent-coral text-cream-100 text-sm font-medium hover:bg-accent-coral/90 disabled:opacity-50"
@@ -235,10 +296,15 @@ function RssTab() {
         title={`删除 RSS 源「${deleting?.name}」？`}
         body="删除后不再从该来源抓取新闻，已入库的新闻会保留。"
         confirmText="删除"
-        onConfirm={() => {
-          removeSource(deleting.id)
-          setDeleting(null)
-          toast.success('已删除')
+        onConfirm={async () => {
+          try {
+            await sourcesApi.delete(deleting.id)
+            setDeleting(null)
+            await loadSources()
+            toast.success('已删除')
+          } catch (e) {
+            toast.error(humanizeError(e))
+          }
         }}
         onCancel={() => setDeleting(null)}
       />
@@ -249,15 +315,33 @@ function RssTab() {
 // ── API 配置 ──
 function ApiTab() {
   const toast = useToast()
-  const { settings } = useStore()
-  const [deepseekKey, setDeepseekKey] = useState(settings.deepseekKey)
-  const [minimaxKey, setMinimaxKey] = useState(settings.minimaxKey)
+  const [deepseekKey, setDeepseekKey] = useState('')
+  const [minimaxKey, setMinimaxKey] = useState('')
+  const [initialKeys, setInitialKeys] = useState({})
+  const [apiStatus, setApiStatus] = useState({})
   const [showDs, setShowDs] = useState(false)
   const [showMm, setShowMm] = useState(false)
   const [saving, setSaving] = useState(false)
 
-  const statusBadge = (status) =>
-    status === 'ok' ? (
+  useEffect(() => {
+    settingsApi
+      .getEnvKeys()
+      .then((keys) => {
+        setInitialKeys(keys)
+        setDeepseekKey(keys.DEEPSEEK_API_KEY || '')
+        setMinimaxKey(keys.MINIMAX_API_KEY || '')
+      })
+      .catch((e) => toast.error(humanizeError(e)))
+    // 连接状态检查会真实调用 DeepSeek / MiniMax，失败不打扰（徽章保持"未验证"）
+    settingsApi
+      .getApiStatus()
+      .then(setApiStatus)
+      .catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const statusBadge = (connected) =>
+    connected ? (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-accent-sage/15 text-accent-sage text-xs font-medium">
         <CheckCircle2 className="w-3 h-3" />
         连接正常
@@ -270,21 +354,46 @@ function ApiTab() {
 
   const handleSave = async () => {
     setSaving(true)
-    await mockVerifyKeys()
-    updateSettings({
-      deepseekKey: deepseekKey.trim(),
-      minimaxKey: minimaxKey.trim(),
-      apiStatus: { deepseek: 'ok', minimax: 'ok' },
-    })
-    setSaving(false)
-    toast.success('已保存，连接验证通过')
+    try {
+      // 只回写用户真正改过的 Key（输入框里是掩码值，原样保存会覆盖真 Key）
+      const jobs = []
+      if (deepseekKey.trim() && deepseekKey.trim() !== (initialKeys.DEEPSEEK_API_KEY || '')) {
+        jobs.push(settingsApi.updateEnv('DEEPSEEK_API_KEY', deepseekKey.trim()))
+      }
+      if (minimaxKey.trim() && minimaxKey.trim() !== (initialKeys.MINIMAX_API_KEY || '')) {
+        jobs.push(settingsApi.updateEnv('MINIMAX_API_KEY', minimaxKey.trim()))
+      }
+      await Promise.all(jobs)
+      const [status, keys] = await Promise.all([
+        settingsApi.getApiStatus().catch(() => null),
+        settingsApi.getEnvKeys().catch(() => null),
+      ])
+      if (status) setApiStatus(status)
+      if (keys) setInitialKeys(keys)
+      if (status) {
+        const bad = []
+        if (!status.deepseek?.connected) bad.push('DeepSeek')
+        if (!status.minimax?.connected) bad.push('MiniMax')
+        if (bad.length === 0) {
+          toast.success('已保存，连接验证通过')
+        } else {
+          toast.error(`${bad.join('、')} 的 Key 无效或未配置，请到 设置 → API 配置 检查`)
+        }
+      } else {
+        toast.success('已保存')
+      }
+    } catch (e) {
+      toast.error(humanizeError(e))
+    } finally {
+      setSaving(false)
+    }
   }
 
-  const field = (label, value, setValue, show, setShow, status, placeholder) => (
+  const field = (label, value, setValue, show, setShow, connected, placeholder) => (
     <div>
       <div className="flex items-center justify-between mb-1.5">
         <label className="text-xs text-ink-50">{label} *</label>
-        {statusBadge(status)}
+        {statusBadge(connected)}
       </div>
       <div className="relative">
         <input
@@ -307,8 +416,8 @@ function ApiTab() {
 
   return (
     <div className="space-y-5 max-w-lg">
-      {field('DeepSeek API Key', deepseekKey, setDeepseekKey, showDs, setShowDs, settings.apiStatus.deepseek, 'sk-…')}
-      {field('MiniMax API Key', minimaxKey, setMinimaxKey, showMm, setShowMm, settings.apiStatus.minimax, 'eyJ…')}
+      {field('DeepSeek API Key', deepseekKey, setDeepseekKey, showDs, setShowDs, apiStatus.deepseek?.connected, 'sk-…')}
+      {field('MiniMax API Key', minimaxKey, setMinimaxKey, showMm, setShowMm, apiStatus.minimax?.connected, 'eyJ…')}
       <p className="text-xs text-ink-50 leading-relaxed bg-cream-200 rounded-xl border border-cream-300 px-3 py-2.5">
         DeepSeek 的 Key 已保存，重启后端后生效；MiniMax 的 Key 即时生效。
       </p>
@@ -327,9 +436,18 @@ function ApiTab() {
 // ── 提示词 ──
 function PromptTab() {
   const toast = useToast()
-  const { settings } = useStore()
-  const [prompt, setPrompt] = useState(settings.prompt)
+  const [prompt, setPrompt] = useState('')
+  const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    settingsApi
+      .getScriptPrompt()
+      .then((res) => setPrompt(res.script_prompt || ''))
+      .catch((e) => toast.error(humanizeError(e)))
+      .finally(() => setLoading(false))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return (
     <div className="space-y-4 max-w-2xl">
@@ -339,6 +457,7 @@ function PromptTab() {
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           rows={14}
+          disabled={loading}
           className="w-full px-4 py-3 bg-cream-100 border border-cream-300 rounded-xl text-sm leading-relaxed focus:outline-none focus:border-accent-coral resize-y"
         />
       </div>
@@ -346,27 +465,29 @@ function PromptTab() {
         <button
           onClick={async () => {
             setSaving(true)
-            await mockDelay()
-            updateSettings({ prompt })
-            setSaving(false)
-            toast.success('已保存')
+            try {
+              await settingsApi.updateScriptPrompt(prompt)
+              toast.success('已保存')
+            } catch (e) {
+              toast.error(`保存失败：${humanizeError(e)}。你的内容还在编辑框里，不会丢失`)
+            } finally {
+              setSaving(false)
+            }
           }}
-          disabled={saving}
+          disabled={saving || loading}
           className="flex items-center gap-2 px-5 h-10 rounded-xl bg-accent-coral text-cream-100 text-sm font-medium hover:bg-accent-coral/90 transition-colors disabled:opacity-60"
         >
           {saving && <Loader2 className="w-4 h-4 animate-spin" />}
           {saving ? '保存中…' : '保存'}
         </button>
-        <span className="text-xs text-ink-50">演示原型说明：mock 生成器不消费此提示词，仅验证交互流程</span>
+        <span className="text-xs text-ink-50">保存到后端 .env（SCRIPT_PROMPT 环境变量）</span>
       </div>
     </div>
   )
 }
 
 export default function Settings() {
-  const toast = useToast()
   const [tab, setTab] = useState('rss')
-  const [confirmReset, setConfirmReset] = useState(false)
 
   return (
     <div className="p-8 min-h-screen max-w-4xl">
@@ -392,31 +513,6 @@ export default function Settings() {
       {tab === 'rss' && <RssTab />}
       {tab === 'api' && <ApiTab />}
       {tab === 'prompt' && <PromptTab />}
-
-      {/* 演示数据重置 */}
-      <div className="mt-12 pt-6 border-t border-cream-300">
-        <button
-          onClick={() => setConfirmReset(true)}
-          className="flex items-center gap-2 px-4 h-9 rounded-xl bg-white border border-[#C4574E]/60 text-xs font-medium text-[#C4574E] hover:bg-[#C4574E] hover:text-white transition-colors"
-        >
-          <RotateCcw className="w-3.5 h-3.5" />
-          重置演示数据
-        </button>
-        <p className="text-xs text-ink-50 mt-2">恢复初始 mock 数据（新闻、节目、设置全部还原），用于重新演示</p>
-      </div>
-
-      <ConfirmDialog
-        open={confirmReset}
-        title="重置演示数据？"
-        body="新闻池、节目、设置将全部恢复为初始状态，你在原型里的所有改动都会丢失。"
-        confirmText="重置"
-        onConfirm={() => {
-          resetDemo()
-          setConfirmReset(false)
-          toast.success('已恢复初始演示数据')
-        }}
-        onCancel={() => setConfirmReset(false)}
-      />
     </div>
   )
 }

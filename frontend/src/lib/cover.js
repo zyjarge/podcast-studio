@@ -15,6 +15,7 @@ export const COVER_PALETTES = [
 ]
 
 const LAYOUTS = ['左对齐', '居中', '水印']
+export const LAYOUT_NAMES = LAYOUTS
 
 const escapeXml = (s) =>
   String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
