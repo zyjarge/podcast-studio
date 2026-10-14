@@ -112,8 +112,8 @@ export default function Dashboard() {
   const monthYear = currentDate.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long' })
   const calendarDays = getCalendarDays()
 
-  // 全部节目面板：按播出日期倒序，可按状态过滤（快速回看往期）
-  const [statusFilter, setStatusFilter] = useState('all')
+  // 全部节目面板：默认聚焦"编辑中"（正在制作的节目），按播出日期倒序
+  const [statusFilter, setStatusFilter] = useState('editing')
   const sortedEpisodes = useMemo(
     () =>
       [...episodes].sort(
@@ -233,14 +233,16 @@ export default function Dashboard() {
         </div>
         <div className="px-3 py-2 border-b border-cream-300 flex gap-1.5">
           {[
-            ['all', '全部', stats.total],
             ['editing', '编辑中', stats.editing],
             ['published', '已发布', stats.published],
+            ['all', '全部', stats.total],
           ].map(([k, label, count]) => (
             <button
               key={k}
               onClick={() => setStatusFilter(k)}
               className={`px-2.5 h-7 rounded-lg text-xs font-medium transition-colors ${
+                k === 'all' ? 'ml-auto ' : ''
+              }${
                 statusFilter === k
                   ? 'bg-ink-300 text-cream-100'
                   : 'bg-cream-200 text-ink-50 hover:bg-cream-300 border border-cream-300'
