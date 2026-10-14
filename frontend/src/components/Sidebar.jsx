@@ -10,9 +10,16 @@ const navItems = [
 export default function Sidebar({ collapsed, onToggle }) {
   const location = useLocation()
 
+  // 双击空白区域收起/展开；落在链接/按钮上的双击不触发
+  const handleDoubleClick = (e) => {
+    if (e.target.closest('a, button')) return
+    onToggle()
+  }
+
   return (
     <aside
-      className={`fixed left-0 top-0 h-screen bg-cream-200 border-r border-cream-400 flex flex-col transition-all duration-200 z-40 ${
+      onDoubleClick={handleDoubleClick}
+      className={`fixed left-0 top-0 h-screen bg-cream-200 border-r border-cream-400 flex flex-col transition-all duration-200 z-40 select-none ${
         collapsed ? 'w-16' : 'w-64'
       }`}
     >
@@ -86,7 +93,7 @@ export default function Sidebar({ collapsed, onToggle }) {
       <div className={`border-t border-cream-400 space-y-1 ${collapsed ? 'p-2' : 'p-4'}`}>
         <button
           onClick={onToggle}
-          title={collapsed ? '展开导航' : '收起导航'}
+          title={collapsed ? '展开导航（也可双击侧栏空白处）' : '收起导航（也可双击侧栏空白处）'}
           className={`w-full flex items-center rounded-xl text-ink-50 hover:bg-cream-300 hover:text-ink-300 transition-colors ${
             collapsed ? 'justify-center py-3' : 'gap-3 px-4 py-3'
           }`}
