@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -23,6 +23,14 @@ const STATUS_BAR = {
   published: 'border-l-accent-sage',
   draft: 'border-l-cream-400',
 }
+
+const STATUS_DOT = {
+  editing: 'bg-accent-gold',
+  published: 'bg-accent-sage',
+  draft: 'bg-cream-500',
+}
+
+const STATUS_LABEL = { editing: '编辑中', published: '已发布', draft: '草稿' }
 
 const todayTitle = () => {
   const d = new Date()
@@ -103,6 +111,25 @@ export default function Dashboard() {
   const isToday = (date) => date.toDateString() === new Date().toDateString()
   const monthYear = currentDate.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long' })
   const calendarDays = getCalendarDays()
+
+  // 全部节目面板：按播出日期倒序，可按状态过滤（快速回看往期）
+  const [statusFilter, setStatusFilter] = useState('all')
+  const sortedEpisodes = useMemo(
+    () =>
+      [...episodes].sort(
+        (a, b) => new Date(b.scheduled_date || b.created_at) - new Date(a.scheduled_date || a.created_at)
+      ),
+    [episodes]
+  )
+  const filteredEpisodes =
+    statusFilter === 'all' ? sortedEpisodes : sortedEpisodes.filter((e) => e.status === statusFilter)
+
+  const epDateLabel = (ep) => {
+    const d = new Date(ep.scheduled_date || ep.created_at)
+    return d.getFullYear() === new Date().getFullYear()
+      ? `${d.getMonth() + 1}月${d.getDate()}日`
+      : `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`
+  }
 
   return (
     <div className="p-8 min-h-screen">
@@ -213,6 +240,8 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* 日历 + 全部节目面板（宽屏并排） */}
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_300px] gap-6 items-start">
       {/* 日历 */}
       <div className="bg-cream-100 rounded-2xl border border-cream-300 overflow-hidden shadow-[0_1px_3px_rgba(45,42,36,0.06)]">
         <div className="flex items-center justify-center px-4 py-3 border-b border-cream-300 bg-cream-200 gap-4">
@@ -302,6 +331,58 @@ export default function Dashboard() {
                 )
               })}
         </div>
+      </div>
+
+      {/* 全部节目面板：快速回看往期 */}
+      <aside className="bg-cream-100 rounded-2xl border border-cream-300 shadow-[0_1px_3px_rgba(45,42,36,0.06)] overflow-hidden xl:sticky xl:top-8">
+        <div className="px-4 py-3 border-b border-cream-300 bg-cream-200 flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-ink-300">全部节目</h2>
+          <span className="text-xs text-ink-50">{episodes.length} 期</span>
+        </div>
+        <div className="px-3 py-2 border-b border-cream-300 flex gap-1.5">
+          {[
+            ['all', '全部'],
+            ['editing', '编辑中'],
+            ['published', '已发布'],
+          ].map(([k, label]) => (
+            <button
+              key={k}
+              onClick={() => setStatusFilter(k)}
+              className={`px-2.5 h-7 rounded-lg text-xs font-medium transition-colors ${
+                statusFilter === k
+                  ? 'bg-ink-300 text-cream-100'
+                  : 'bg-cream-200 text-ink-50 hover:bg-cream-300 border border-cream-300'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="max-h-[520px] overflow-y-auto p-2">
+          {filteredEpisodes.length === 0 ? (
+            <p className="text-xs text-ink-50 text-center py-8">没有符合条件的节目</p>
+          ) : (
+            filteredEpisodes.map((ep) => (
+              <button
+                key={ep.id}
+                onClick={() => navigate(`/episode/${ep.id}`)}
+                className="w-full flex items-center gap-2.5 px-2.5 py-2.5 rounded-xl hover:bg-cream-200 transition-colors text-left group"
+              >
+                <span
+                  className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_DOT[ep.status] || STATUS_DOT.draft}`}
+                />
+                <span className="flex-1 min-w-0">
+                  <span className="block text-sm text-ink-300 truncate">{ep.title || '未命名节目'}</span>
+                  <span className="block text-xs text-ink-50 mt-0.5">
+                    {epDateLabel(ep)} · {STATUS_LABEL[ep.status] || '草稿'}
+                  </span>
+                </span>
+                <ChevronRight className="w-4 h-4 text-cream-500 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+              </button>
+            ))
+          )}
+        </div>
+      </aside>
       </div>
     </div>
   )
