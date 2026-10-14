@@ -13,6 +13,7 @@ import {
   Eye,
   EyeOff,
   CheckCircle2,
+  ExternalLink,
 } from 'lucide-react'
 import {
   sourcesApi,
@@ -161,7 +162,18 @@ function RssTab() {
           >
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-ink-300">{s.name}</p>
-              <p className="text-xs text-ink-50 truncate">{s.url}</p>
+              <a
+                href={s.url}
+                target="_blank"
+                rel="noreferrer"
+                className="group/url inline-flex items-center gap-1 text-xs text-ink-50 hover:text-accent-coral transition-colors max-w-full"
+                title="在新标签页打开"
+              >
+                <span className="truncate underline decoration-cream-400 underline-offset-2 group-hover/url:decoration-accent-coral">
+                  {s.url}
+                </span>
+                <ExternalLink className="w-3 h-3 shrink-0 opacity-0 group-hover/url:opacity-100 transition-opacity" />
+              </a>
             </div>
             <button
               onClick={() => handleFetchOne(s)}
