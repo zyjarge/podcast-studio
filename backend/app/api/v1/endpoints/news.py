@@ -208,7 +208,7 @@ def _cluster_topics_with_llm(news_list) -> list:
     """调用 LLM 按话题聚类。LLM 不可用或输出无法解析时抛异常，由调用方降级"""
     service = get_podcast_service()
     if not service.llm:
-        raise RuntimeError("LLM service not initialized. Please set DEEPSEEK_API_KEY")
+        raise RuntimeError("LLM service not initialized. Please set MINIMAX_API_KEY")
 
     news_lines = []
     for n in news_list:
@@ -216,7 +216,7 @@ def _cluster_topics_with_llm(news_list) -> list:
         news_lines.append(f"{n.id}: {n.title} — {summary}")
     prompt = TOPIC_CLUSTER_PROMPT.format(news_text="\n".join(news_lines))
 
-    response = service.llm.generate(prompt=prompt, max_tokens=2048, temperature=0.3)
+    response = service.llm.generate(prompt=prompt, max_tokens=8192, temperature=0.3)
 
     data = extract_json_array(response.text)
     if not isinstance(data, list):
@@ -306,11 +306,11 @@ def _cluster_topics_heuristic(news_list) -> list:
 @router.post("/cluster-topics")
 async def cluster_topics(db: Session = Depends(get_db)):
     """
-    按话题聚类最近 30 条新闻（按创建时间倒序）。
+    按话题聚类最近 200 条新闻（按创建时间倒序），与前端新闻池拉取口径一致。
     优先 LLM 聚类；LLM 不可用或输出解析失败时降级为关键词重叠启发式，
     保证永远返回结果。
     """
-    news_list = db.query(News).order_by(News.created_at.desc()).limit(30).all()
+    news_list = db.query(News).order_by(News.created_at.desc()).limit(200).all()
     if not news_list:
         return {"topics": []}
 

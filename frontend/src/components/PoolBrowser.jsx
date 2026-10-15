@@ -30,14 +30,27 @@ const SCORE_FILTERS = [
   { label: '90+', value: 90 },
 ]
 
+// 后端 created_at 是无时区的 UTC 时间（datetime.utcnow），补 Z 按 UTC 解析后再转本地时区显示
+const parseUtc = (iso) => {
+  const s = typeof iso === 'string' && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(iso) ? `${iso}Z` : iso
+  return new Date(s)
+}
+
 const fmtNewsTime = (iso) => {
-  const d = new Date(iso)
+  const d = parseUtc(iso)
   const now = new Date()
   const sameDay = d.toDateString() === now.toDateString()
   const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
   if (sameDay) return `今天 ${hm}`
   if (d.getFullYear() === now.getFullYear()) return `${d.getMonth() + 1}月${d.getDate()}日`
   return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`
+}
+
+/** 完整时间：2026年10月15日 14:26:03（本地时区） */
+const fmtFullTime = (iso) => {
+  const d = parseUtc(iso)
+  const p = (x) => String(x).padStart(2, '0')
+  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
 }
 
 /** 后端 topic {title, summary, news_ids} → 组件内部形状（代表报道 = 组内最高分） */
@@ -240,7 +253,7 @@ export default function PoolBrowser({ mode = 'page', pickedIds = [], pendingIds 
   }
 
   // 没有独立的"上次抓取"接口：用最新一条新闻的入库时间近似
-  const lastFetchText = news.length > 0 ? fmtNewsTime(news[0].created_at).replace('今天 ', '') : '从未'
+  const lastFetchText = news.length > 0 ? fmtFullTime(news[0].created_at) : '从未'
 
   const viewToggle = (
     <div className="flex gap-0.5 bg-cream-200 border border-cream-300 rounded-xl p-1 shrink-0">
@@ -583,7 +596,7 @@ export default function PoolBrowser({ mode = 'page', pickedIds = [], pendingIds 
             </button>
           )
         ) : (
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
             {visibleTopics.map((t) => {
               const rep = newsById[t.representativeId]
               const repPicked = pickedIds.includes(t.representativeId)
@@ -594,7 +607,28 @@ export default function PoolBrowser({ mode = 'page', pickedIds = [], pendingIds 
               return (
                 <div
                   key={t.id}
-                  className={`rounded-2xl border bg-cream-200 transition-all ${
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => {
+                    if (!rep) return
+                    if (mode === 'embed') {
+                      if (!repPending) onTogglePick?.(rep)
+                    } else {
+                      setDetailNews(rep)
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if ((e.key === 'Enter' || e.key === ' ') && rep) {
+                      e.preventDefault()
+                      if (mode === 'embed') {
+                        if (!repPending) onTogglePick?.(rep)
+                      } else {
+                        setDetailNews(rep)
+                      }
+                    }
+                  }}
+                  title={mode === 'embed' ? '点击选中本话题' : '点击查看新闻全文'}
+                  className={`rounded-2xl border bg-cream-200 card-hover cursor-pointer ${
                     repPicked
                       ? 'border-l-[3px] border-l-accent-coral border-cream-300 shadow-[0_1px_3px_rgba(45,42,36,0.06)]'
                       : 'border-cream-300 hover:border-cream-400'
@@ -602,7 +636,10 @@ export default function PoolBrowser({ mode = 'page', pickedIds = [], pendingIds 
                 >
                   <div className="flex items-start gap-3 p-4">
                     <button
-                      onClick={() => rep && !repPending && onTogglePick?.(rep)}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (rep && !repPending) onTogglePick?.(rep)
+                      }}
                       disabled={!rep || repPending}
                       title={repPicked ? `${pickedLabel}，再点一次取消` : '选中本话题（默认带代表报道）'}
                       className={`mt-0.5 shrink-0 w-5 h-5 rounded-md border flex items-center justify-center transition-colors ${
@@ -635,7 +672,10 @@ export default function PoolBrowser({ mode = 'page', pickedIds = [], pendingIds 
                       </p>
                       {others.length > 0 && (
                         <button
-                          onClick={() => setExpandedTopic(expanded ? null : t.id)}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setExpandedTopic(expanded ? null : t.id)
+                          }}
                           className="mt-1.5 flex items-center gap-1 text-xs text-ink-50 hover:text-ink-300 transition-colors"
                         >
                           <ChevronDown
@@ -664,7 +704,10 @@ export default function PoolBrowser({ mode = 'page', pickedIds = [], pendingIds 
                             return (
                               <button
                                 key={nid}
-                                onClick={() => !rowPending && onTogglePick?.(n)}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  if (!rowPending) onTogglePick?.(n)
+                                }}
                                 disabled={rowPending}
                                 className="w-full flex items-center gap-2 py-1.5 text-left group"
                               >
