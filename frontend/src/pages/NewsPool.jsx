@@ -11,10 +11,14 @@ import {
   Inbox,
   Filter,
   WifiOff,
+  Flame,
 } from 'lucide-react'
 import { newsApi, sourcesApi, episodesApi, normalizeNews, humanizeError } from '../services/api'
+import { DOMAINS, SCORE_SEGMENTS, classifyNews, domainStats } from '../lib/domains'
 import { useToast } from '../components/Toast'
 import StarRating from '../components/StarRating'
+
+const DOMAIN_MAP = Object.fromEntries(DOMAINS.map((d) => [d.id, d]))
 
 const SCORE_FILTERS = [
   { label: '全部', value: 0 },
@@ -45,6 +49,7 @@ export default function NewsPool() {
   const [keyword, setKeyword] = useState('')
   const [minScore, setMinScore] = useState(0)
   const [activeSources, setActiveSources] = useState(null) // null = 全选
+  const [activeDomain, setActiveDomain] = useState(null) // null = 全部领域
   const [selected, setSelected] = useState([])
   const [detailNews, setDetailNews] = useState(null)
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -98,10 +103,15 @@ export default function NewsPool() {
     })
   }
 
+  // 领域归类：每条新闻算一次，供筛选 / 徽章 / 总览卡片复用
+  const domainById = useMemo(() => new Map(news.map((n) => [n.id, classifyNews(n)])), [news])
+  const overview = useMemo(() => domainStats(news), [news])
+
   const filtered = useMemo(() => {
     return news
       .filter((n) => checkedSources.includes(n.source))
       .filter((n) => n.score >= minScore)
+      .filter((n) => !activeDomain || domainById.get(n.id) === activeDomain)
       .filter((n) => {
         if (!keyword.trim()) return true
         const k = keyword.trim().toLowerCase()
@@ -112,7 +122,7 @@ export default function NewsPool() {
         )
       })
       .sort((a, b) => b.score - a.score)
-  }, [news, checkedSources, minScore, keyword])
+  }, [news, checkedSources, minScore, activeDomain, domainById, keyword])
 
   const grouped = useMemo(() => {
     const map = new Map()
@@ -169,6 +179,88 @@ export default function NewsPool() {
         <h1 className="font-display text-2xl font-semibold text-ink-300 mb-1">新闻池</h1>
         <p className="text-sm text-ink-50">抓取热点，自动评分，挑好料再做节目</p>
       </div>
+
+      {/* 今日热点总览：领域卡片墙，点击下钻 */}
+      {!loading && !loadError && news.length > 0 && (
+        <div className="mb-6">
+          <div className="flex items-end justify-between mb-3">
+            <div>
+              <h2 className="flex items-center gap-2 font-display text-lg font-semibold text-ink-300">
+                <Flame className="w-4 h-4 text-accent-coral" />
+                今日热点全景
+              </h2>
+              <p className="text-xs text-ink-50 mt-0.5">各领域热点一览，点击卡片下钻</p>
+            </div>
+            <span className="text-xs text-ink-50">共 {news.length} 条</span>
+          </div>
+          <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1">
+            <motion.button
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3, ease: 'easeOut' }}
+              onClick={() => setActiveDomain(null)}
+              className={`w-[110px] shrink-0 rounded-2xl border p-4 flex flex-col items-center justify-center gap-1 transition-all ${
+                activeDomain === null
+                  ? 'border-accent-coral bg-cream-200 shadow-[0_0_0_1px_rgba(224,122,95,0.35)]'
+                  : 'border-cream-300 bg-cream-200 card-hover'
+              }`}
+            >
+              <span className="text-sm font-semibold text-ink-300">全部</span>
+              <span className="text-xs text-ink-50">{news.length} 条</span>
+            </motion.button>
+            {overview.map((d, i) => {
+              const active = activeDomain === d.id
+              return (
+                <motion.button
+                  key={d.id}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3, delay: 0.06 * (i + 1), ease: 'easeOut' }}
+                  onClick={() => setActiveDomain(active ? null : d.id)}
+                  disabled={d.count === 0}
+                  className={`w-[230px] shrink-0 text-left bg-cream-200 rounded-2xl border p-4 transition-all ${
+                    active
+                      ? 'border-accent-coral shadow-[0_0_0_1px_rgba(224,122,95,0.35)]'
+                      : 'border-cream-300 card-hover'
+                  } ${d.count === 0 ? 'opacity-50 cursor-default' : ''}`}
+                >
+                  <div className="flex items-center justify-between gap-2 mb-2.5">
+                    <span className="text-sm font-semibold text-ink-300">{d.name}</span>
+                    <span className="text-xs text-ink-50 bg-cream-100 border border-cream-300 rounded-full px-2 py-0.5 shrink-0">
+                      {d.count} 条
+                    </span>
+                  </div>
+                  <div
+                    className="flex h-1.5 rounded-full overflow-hidden bg-cream-300 mb-3"
+                    title={SCORE_SEGMENTS.map((s) => `${s.label} ${d.dist[s.key]}`).join(' · ')}
+                  >
+                    {SCORE_SEGMENTS.map((s) =>
+                      d.dist[s.key] > 0 ? (
+                        <span
+                          key={s.key}
+                          className={s.barClass}
+                          style={{ width: `${(d.dist[s.key] / d.count) * 100}%` }}
+                        />
+                      ) : null
+                    )}
+                  </div>
+                  <ul className="space-y-1">
+                    {d.top3.length > 0 ? (
+                      d.top3.map((n) => (
+                        <li key={n.id} className="text-xs text-ink-50 truncate" title={n.title}>
+                          · {n.title}
+                        </li>
+                      ))
+                    ) : (
+                      <li className="text-xs text-cream-500">暂无相关新闻</li>
+                    )}
+                  </ul>
+                </motion.button>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* 工具栏 */}
       <div className="flex flex-wrap items-center gap-3 mb-4">
@@ -270,6 +362,7 @@ export default function NewsPool() {
               setMinScore(0)
               setKeyword('')
               setActiveSources(null)
+              setActiveDomain(null)
             }}
             className="px-5 h-10 rounded-xl bg-cream-100 border border-cream-300 text-sm text-ink-300 hover:bg-cream-300 transition-colors"
           >
@@ -277,7 +370,21 @@ export default function NewsPool() {
           </button>
         </div>
       ) : (
-        grouped.map(([source, items]) => (
+        <>
+          {activeDomain && (
+            <div className="flex items-center gap-2 mb-4">
+              <h2 className="text-base font-semibold text-ink-300">
+                {DOMAIN_MAP[activeDomain]?.name} · {filtered.length} 条
+              </h2>
+              <button
+                onClick={() => setActiveDomain(null)}
+                className="text-xs text-ink-50 hover:text-accent-coral transition-colors"
+              >
+                查看全部 ×
+              </button>
+            </div>
+          )}
+        {grouped.map(([source, items]) => (
           <section key={source} className="mb-8">
             <div className="flex items-center gap-2 mb-3">
               <h2 className="text-base font-semibold text-ink-300">{source}</h2>
@@ -288,6 +395,7 @@ export default function NewsPool() {
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               {items.map((n) => {
                 const checked = selected.includes(n.id)
+                const dm = DOMAIN_MAP[domainById.get(n.id)]
                 return (
                   <div
                     key={n.id}
@@ -304,6 +412,11 @@ export default function NewsPool() {
                     >
                       {checked && <Check className="w-3.5 h-3.5 text-cream-100" />}
                     </button>
+                    {dm && (
+                      <span className={`inline-block px-2 py-0.5 mb-2 rounded-full text-xs ${dm.badge}`}>
+                        {dm.name}
+                      </span>
+                    )}
                     <h3 className="text-base font-medium text-ink-300 leading-snug pr-7 mb-2 line-clamp-2">
                       {n.title}
                     </h3>
@@ -334,7 +447,8 @@ export default function NewsPool() {
               })}
             </div>
           </section>
-        ))
+        ))}
+        </>
       )}
 
       {/* 批量添加浮条 */}
@@ -394,6 +508,11 @@ export default function NewsPool() {
               </div>
               <div className="flex flex-wrap items-center gap-3 text-xs text-ink-50 mb-4">
                 <span className="px-2 py-0.5 bg-cream-200 border border-cream-300 rounded-full">{detailNews.source}</span>
+                {DOMAIN_MAP[domainById.get(detailNews.id)] && (
+                  <span className={`px-2 py-0.5 rounded-full ${DOMAIN_MAP[domainById.get(detailNews.id)].badge}`}>
+                    {DOMAIN_MAP[domainById.get(detailNews.id)].name}
+                  </span>
+                )}
                 <StarRating score={detailNews.score} />
                 <span>{fmtNewsTime(detailNews.created_at)}</span>
               </div>
