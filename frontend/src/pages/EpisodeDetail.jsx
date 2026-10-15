@@ -1,13 +1,9 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
-import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
 import {
   ArrowLeft,
   Plus,
-  GripVertical,
   ChevronDown,
   Trash2,
   FileText,
@@ -82,10 +78,11 @@ function mapAudioProgress(p) {
 const isDefaultTitle = (title) => /^科技双响炮 · \d{1,2}月\d{1,2}日$/.test(title || '')
 
 // ── 可拖拽的新闻手风琴卡片 ──
-function SortableNewsCard({ id, index, news, note, expanded, onToggle, onSaveNote, onRemove }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
+function EpisodeNewsCard({ index, news, note, expanded, onToggle, onSaveNote, onRemove }) {
   const [confirming, setConfirming] = useState(false)
   const [draftNote, setDraftNote] = useState(note || '')
+  // 备注输入框默认收起，点"素材备注"手动打开；已有备注的默认展开
+  const [noteOpen, setNoteOpen] = useState(Boolean(note))
 
   useEffect(() => setDraftNote(note || ''), [note])
 
@@ -93,28 +90,9 @@ function SortableNewsCard({ id, index, news, note, expanded, onToggle, onSaveNot
     if (!expanded) setConfirming(false)
   }, [expanded])
 
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.6 : 1,
-    zIndex: isDragging ? 20 : undefined,
-  }
-
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className="bg-cream-100 rounded-2xl border border-cream-300 shadow-[0_1px_3px_rgba(45,42,36,0.06)] overflow-hidden"
-    >
+    <div className="bg-cream-100 rounded-2xl border border-cream-300 shadow-[0_1px_3px_rgba(45,42,36,0.06)] overflow-hidden">
       <div className="flex items-center gap-2 px-3 py-3">
-        <button
-          {...attributes}
-          {...listeners}
-          className="p-1 cursor-grab active:cursor-grabbing text-cream-500 hover:text-ink-50 touch-none"
-          title="拖拽排序"
-        >
-          <GripVertical className="w-4 h-4" />
-        </button>
         <span className="w-5 h-5 rounded-full bg-cream-300 text-ink-50 text-xs flex items-center justify-center shrink-0 font-medium">
           {index + 1}
         </span>
@@ -124,6 +102,32 @@ function SortableNewsCard({ id, index, news, note, expanded, onToggle, onSaveNot
             {news.source} · {news.score} 分
           </p>
         </button>
+        {confirming ? (
+          <span className="flex items-center gap-1 shrink-0">
+            <button
+              onClick={onRemove}
+              title="确认移除"
+              className="flex items-center justify-center w-6 h-6 rounded-md bg-[#C4574E] text-white hover:bg-[#C4574E]/90"
+            >
+              <Check className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => setConfirming(false)}
+              title="取消"
+              className="flex items-center justify-center w-6 h-6 rounded-md bg-cream-200 border border-cream-300 text-ink-50 hover:bg-cream-300"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </span>
+        ) : (
+          <button
+            onClick={() => setConfirming(true)}
+            title="从本期节目移除"
+            className="shrink-0 p-1.5 rounded-lg text-cream-500 hover:text-[#C4574E] hover:bg-cream-200 transition-colors"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        )}
         <ChevronDown
           className={`w-4 h-4 text-ink-50 shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`}
         />
@@ -141,42 +145,26 @@ function SortableNewsCard({ id, index, news, note, expanded, onToggle, onSaveNot
             <div className="px-4 pb-4 pt-1 border-t border-cream-300/70 space-y-3">
               <p className="text-xs text-ink-50 leading-relaxed">{news.content}</p>
               <div>
-                <label className="block text-xs text-ink-50 mb-1">素材备注（会随素材一起发给 AI）</label>
-                <textarea
-                  value={draftNote}
-                  onChange={(e) => setDraftNote(e.target.value)}
-                  onBlur={() => {
-                    if (draftNote.trim() !== (note || '')) onSaveNote(draftNote.trim())
-                  }}
-                  rows={2}
-                  placeholder="这条素材想强调的角度…"
-                  className="w-full px-3 py-2 bg-cream-200 border border-cream-300 rounded-xl text-xs leading-relaxed focus:outline-none focus:border-accent-coral resize-none"
-                />
-              </div>
-              <div className="flex justify-end">
-                {confirming ? (
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-ink-50">从本期节目移除？</span>
-                    <button
-                      onClick={onRemove}
-                      className="px-3 h-8 rounded-lg bg-[#C4574E] text-white text-xs font-medium hover:bg-[#C4574E]/90"
-                    >
-                      移除
-                    </button>
-                    <button
-                      onClick={() => setConfirming(false)}
-                      className="px-3 h-8 rounded-lg bg-cream-200 border border-cream-300 text-xs text-ink-300 hover:bg-cream-300"
-                    >
-                      取消
-                    </button>
-                  </div>
+                {noteOpen ? (
+                  <>
+                    <label className="block text-xs text-ink-50 mb-1">素材备注（会随素材一起发给 AI）</label>
+                    <textarea
+                      value={draftNote}
+                      onChange={(e) => setDraftNote(e.target.value)}
+                      onBlur={() => {
+                        if (draftNote.trim() !== (note || '')) onSaveNote(draftNote.trim())
+                      }}
+                      rows={2}
+                      placeholder="这条素材想强调的角度…"
+                      className="w-full px-3 py-2 bg-cream-200 border border-cream-300 rounded-xl text-xs leading-relaxed focus:outline-none focus:border-accent-coral resize-none"
+                    />
+                  </>
                 ) : (
                   <button
-                    onClick={() => setConfirming(true)}
-                    className="flex items-center gap-1.5 px-3 h-8 rounded-lg border border-[#C4574E]/60 text-[#C4574E] text-xs font-medium hover:bg-[#C4574E] hover:text-white transition-colors"
+                    onClick={() => setNoteOpen(true)}
+                    className="text-xs text-ink-50 hover:text-accent-coral transition-colors"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    移除
+                    + 素材备注（会随素材一起发给 AI）
                   </button>
                 )}
               </div>
@@ -300,7 +288,7 @@ export default function EpisodeDetail() {
     if (episode) setNotesDraft(episode.notes || '')
   }, [episode?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 手风琴展开
+  // 手风琴展开：默认全部收起，点标题展开一条
   const [expandedId, setExpandedId] = useState(null)
 
   // 选料模式：右栏整个区域变为新闻池浏览，点选即加入/移出
@@ -335,8 +323,6 @@ export default function EpisodeDetail() {
   // 只在本次页面生命周期内见过"进行中"时，done/error 才弹 toast 并刷新——
   // 避免打开一期早就生成完的节目时误报"音频已生成"
   const sawInFlightRef = useRef(false)
-
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
 
   const stopPolling = () => {
     if (pollRef.current) {
@@ -487,27 +473,6 @@ export default function EpisodeDetail() {
     if (notesDraft !== (episode.notes || '')) {
       patchEpisode({ notes: notesDraft })
     }
-  }
-
-  const handleDragEnd = (event) => {
-    const { active, over } = event
-    if (!over || active.id === over.id) return
-    const oldIndex = newsIds.indexOf(active.id)
-    const newIndex = newsIds.indexOf(over.id)
-    const nextIds = arrayMove(newsIds, oldIndex, newIndex)
-    // 乐观更新本地顺序，再持久化（reorder 的 id 是 EpisodeNews 的 id）
-    setEpNewsList((list) => {
-      const byNewsId = Object.fromEntries(list.map((en) => [en.news_id, en]))
-      return nextIds.map((nid, i) => ({ ...byNewsId[nid], order: i }))
-    })
-    const orders = nextIds.map((nid, i) => {
-      const en = epNewsList.find((x) => x.news_id === nid)
-      return { id: en.id, order: i }
-    })
-    episodesApi.reorderNews(id, orders).catch(async (e) => {
-      toast.error(humanizeError(e))
-      await refreshEpisodeNews()
-    })
   }
 
   const handleRemoveNews = async (newsId) => {
@@ -819,34 +784,29 @@ export default function EpisodeDetail() {
             </div>
           ) : (
             <>
-              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                <SortableContext items={newsIds} strategy={verticalListSortingStrategy}>
-                  {episodeNews.map((n, i) => (
-                    <SortableNewsCard
-                      key={n.id}
-                      id={n.id}
-                      index={i}
-                      news={n}
-                      note={n.note}
-                      expanded={expandedId === n.id}
-                      onToggle={() => setExpandedId(expandedId === n.id ? null : n.id)}
-                      onSaveNote={async (note) => {
-                        // 先本地生效，再持久化
-                        setEpNewsList((list) =>
-                          list.map((en) => (en.news_id === n.id ? { ...en, notes: note } : en))
-                        )
-                        try {
-                          await episodesApi.updateNewsNotes(id, n.id, note)
-                          toast.success('已保存')
-                        } catch (e) {
-                          toast.error(`保存失败：${humanizeError(e)}。你的内容还在编辑框里，不会丢失`)
-                        }
-                      }}
-                      onRemove={() => handleRemoveNews(n.id)}
-                    />
-                  ))}
-                </SortableContext>
-              </DndContext>
+              {episodeNews.map((n, i) => (
+                <EpisodeNewsCard
+                  key={n.id}
+                  index={i}
+                  news={n}
+                  note={n.note}
+                  expanded={expandedId === n.id}
+                  onToggle={() => setExpandedId(expandedId === n.id ? null : n.id)}
+                  onSaveNote={async (note) => {
+                    // 先本地生效，再持久化
+                    setEpNewsList((list) =>
+                      list.map((en) => (en.news_id === n.id ? { ...en, notes: note } : en))
+                    )
+                    try {
+                      await episodesApi.updateNewsNotes(id, n.id, note)
+                      toast.success('已保存')
+                    } catch (e) {
+                      toast.error(`保存失败：${humanizeError(e)}。你的内容还在编辑框里，不会丢失`)
+                    }
+                  }}
+                  onRemove={() => handleRemoveNews(n.id)}
+                />
+              ))}
               <button
                 onClick={() => setPicking(true)}
                 className="w-full flex items-center justify-center gap-2 h-11 rounded-2xl border border-dashed border-cream-400 text-sm text-ink-50 hover:text-ink-300 hover:border-cream-500 hover:bg-cream-200 transition-colors"

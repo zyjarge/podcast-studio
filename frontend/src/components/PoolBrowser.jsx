@@ -1,20 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 import {
   Search,
   RefreshCw,
   Loader2,
-  Eye,
-  X,
   Check,
   Inbox,
   Filter,
   WifiOff,
   Flame,
-  Layers,
-  LayoutGrid,
-  ChevronDown,
-  Star,
 } from 'lucide-react'
 import { newsApi, sourcesApi, normalizeNews, humanizeError } from '../services/api'
 import { DOMAINS, SCORE_SEGMENTS, classifyNews, domainStats } from '../lib/domains'
@@ -53,34 +47,12 @@ const fmtFullTime = (iso) => {
   return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
 }
 
-/** 后端 topic {title, summary, news_ids} → 组件内部形状（代表报道 = 组内最高分） */
-function adaptTopics(rawTopics, newsList) {
-  const byId = Object.fromEntries(newsList.map((n) => [n.id, n]))
-  return (rawTopics || [])
-    .map((t) => {
-      const ids = (t.news_ids || []).filter((nid) => byId[nid])
-      if (ids.length === 0) return null
-      const members = ids.map((nid) => byId[nid])
-      const rep = members.reduce((a, b) => (b.score > a.score ? b : a), members[0])
-      return {
-        id: `topic-${ids[0]}`,
-        title: t.title,
-        summary: t.summary,
-        newsIds: ids,
-        representativeId: rep.id,
-        topScore: rep.score,
-        keywords: rep.keywords || [],
-      }
-    })
-    .filter(Boolean)
-    .sort((a, b) => b.topScore - a.topScore)
-}
-
 /**
- * 新闻池浏览组件：今日热点全景 + 工具栏 + 来源筛选 + 话题/列表双视图 + 详情弹窗。
+ * 新闻池浏览组件：今日热点全景 + 工具栏 + 来源筛选 + 列表视图。
  * 新闻池页（mode="page"）与节目页内嵌选料（mode="embed"）共用。
- * - page：卡片右上角勾选进购物车（由 NewsPool 的浮条批量加入节目）
- * - embed：点卡片即 toggle 选中，父组件立即加入/移出节目；pickedIds 内的卡片显示"已加入"
+ * 卡片交互（两种模式一致）：单击 = 展开/收起全文；加入/移出待选点右上角勾选框。
+ * - page：勾选进购物车（由 NewsPool 的浮条批量加入节目）
+ * - embed：勾选后父组件立即加入/移出节目；pickedIds 内的卡片显示左侧红条
  *
  * props: mode, pickedIds, pendingIds（请求中的 news id，卡片置灰）, onTogglePick(newsItem)
  */
@@ -96,13 +68,10 @@ export default function PoolBrowser({ mode = 'page', pickedIds = [], pendingIds 
   const [minScore, setMinScore] = useState(0)
   const [activeSources, setActiveSources] = useState(null) // null = 全选
   const [activeDomain, setActiveDomain] = useState(null) // null = 全部领域
-  const [view, setView] = useState(mode === 'embed' ? 'topics' : 'list') // 'topics' | 'list'
-  const [topics, setTopics] = useState([])
-  const [clustering, setClustering] = useState(false)
-  const [expandedTopic, setExpandedTopic] = useState(null)
-  const [detailNews, setDetailNews] = useState(null)
-  // 话题缓存：新闻池没变（条数 + 最新一条 id 相同）时不重复聚类
-  const topicsSigRef = useRef('')
+  const [expandedIds, setExpandedIds] = useState(() => new Set()) // 单击展开全文的卡片
+  const clickTimerRef = useRef(null) // 单击延迟执行，给"连点勾选"留窗口（两次单击不触发展开）
+
+  useEffect(() => () => clearTimeout(clickTimerRef.current), [])
 
   const load = async () => {
     setLoadError('')
@@ -125,32 +94,6 @@ export default function PoolBrowser({ mode = 'page', pickedIds = [], pendingIds 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const newsSig = `${news.length}:${news[0]?.id ?? 0}`
-
-  // 话题聚类：切到话题视图且新闻池有更新时才调 LLM（懒加载，避免列表视图白跑一趟）
-  useEffect(() => {
-    if (view !== 'topics' || news.length === 0) return
-    if (newsSig === topicsSigRef.current) return
-    let cancelled = false
-    setClustering(true)
-    ;(async () => {
-      try {
-        const { topics: rawTopics } = await newsApi.clusterTopics()
-        if (cancelled) return
-        setTopics(adaptTopics(rawTopics, news))
-        topicsSigRef.current = newsSig
-      } catch (e) {
-        if (!cancelled) toast.error(humanizeError(e))
-      } finally {
-        if (!cancelled) setClustering(false)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, newsSig])
-
   const enabledSources = sources.filter((s) => s.enabled)
   const checkedSources = activeSources === null ? enabledSources.map((s) => s.name) : activeSources
 
@@ -165,7 +108,6 @@ export default function PoolBrowser({ mode = 'page', pickedIds = [], pendingIds 
   // 领域归类：每条新闻算一次，供筛选 / 徽章 / 总览卡片复用
   const domainById = useMemo(() => new Map(news.map((n) => [n.id, classifyNews(n)])), [news])
   const overview = useMemo(() => domainStats(news), [news])
-  const newsById = useMemo(() => Object.fromEntries(news.map((n) => [n.id, n])), [news])
   const pendingSet = useMemo(() => new Set(pendingIds), [pendingIds])
 
   const matchesKeyword = (n, k) =>
@@ -195,35 +137,6 @@ export default function PoolBrowser({ mode = 'page', pickedIds = [], pendingIds 
     })
     return [...map.entries()]
   }, [filtered])
-
-  // 话题视图：按话题最高分过滤 + 关键词（话题名/组内新闻）+ 领域 + 来源（组内任一命中即可）
-  const visibleTopics = useMemo(() => {
-    return topics
-      .filter((t) => t.topScore >= minScore)
-      .filter((t) => !activeDomain || t.newsIds.some((id) => domainById.get(id) === activeDomain))
-      .filter((t) =>
-        activeSources === null
-          ? true
-          : t.newsIds.some((id) => {
-              const n = newsById[id]
-              return n && checkedSources.includes(n.source)
-            })
-      )
-      .filter((t) => {
-        if (!keyword.trim()) return true
-        const k = keyword.trim().toLowerCase()
-        if (t.title.toLowerCase().includes(k)) return true
-        return t.newsIds.some((id) => {
-          const n = newsById[id]
-          return (
-            n &&
-            (n.title.toLowerCase().includes(k) ||
-              n.keywords.some((kw) => kw.toLowerCase().includes(k)))
-          )
-        })
-      })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [topics, minScore, keyword, newsById, activeDomain, domainById, activeSources, checkedSources])
 
   const handleFetch = async () => {
     if (fetching) return
@@ -255,31 +168,54 @@ export default function PoolBrowser({ mode = 'page', pickedIds = [], pendingIds 
   // 没有独立的"上次抓取"接口：用最新一条新闻的入库时间近似
   const lastFetchText = news.length > 0 ? fmtFullTime(news[0].created_at) : '从未'
 
-  const viewToggle = (
-    <div className="flex gap-0.5 bg-cream-200 border border-cream-300 rounded-xl p-1 shrink-0">
-      {[
-        { key: 'topics', label: '话题', icon: Layers },
-        { key: 'list', label: '列表', icon: LayoutGrid },
-      ].map(({ key, label, icon: Icon }) => (
-        <button
-          key={key}
-          onClick={() => setView(key)}
-          className={`flex items-center gap-1.5 px-3 h-8 rounded-lg text-sm font-medium transition-colors ${
-            view === key ? 'bg-cream-100 text-ink-300 shadow-sm' : 'text-ink-50 hover:text-ink-300'
-          }`}
-        >
-          <Icon className="w-3.5 h-3.5" />
-          {label}
-        </button>
-      ))}
-    </div>
-  )
-
-  /** 新闻卡片：embed = 整卡点选；page = 右上角勾选进购物车 */
+  /** 新闻卡片：单击展开/收起全文，右上角勾选框加入/移出待选 */
   const renderCard = (n) => {
     const picked = pickedIds.includes(n.id)
     const pending = pendingSet.has(n.id)
+    const expanded = expandedIds.has(n.id)
     const dm = DOMAIN_MAP[domainById.get(n.id)]
+
+    const toggleExpand = () =>
+      setExpandedIds((cur) => {
+        const next = new Set(cur)
+        if (next.has(n.id)) next.delete(n.id)
+        else next.add(n.id)
+        return next
+      })
+
+    // 单击延迟 250ms 再展开：用户连点右上角勾选框时，第一次点击挂起的计时器
+    // 会被第二次点击挡掉（clickTimerRef 非空直接返回），不会触发展开/收起
+    const handleCardClick = () => {
+      if (pending || clickTimerRef.current) return
+      clickTimerRef.current = setTimeout(() => {
+        clickTimerRef.current = null
+        toggleExpand()
+      }, 250)
+    }
+
+    // 勾选框是独立的添加入口，两种模式共用；点击不冒泡到卡片
+    const pickButton = (
+      <button
+        onClick={(e) => {
+          e.stopPropagation()
+          if (!pending) onTogglePick?.(n)
+        }}
+        disabled={pending}
+        title={picked ? '移出待选' : '加入待选'}
+        className={`absolute top-3 right-3 w-5 h-5 rounded-md border flex items-center justify-center transition-colors ${
+          picked
+            ? 'bg-accent-coral border-accent-coral'
+            : 'border-cream-400 bg-cream-100 hover:border-accent-coral'
+        } ${pending ? 'opacity-60 cursor-wait' : ''}`}
+      >
+        {pending ? (
+          <Loader2 className="w-3 h-3 animate-spin text-accent-coral" />
+        ) : (
+          picked && <Check className="w-3.5 h-3.5 text-cream-100" />
+        )}
+      </button>
+    )
+
     const meta = (
       <>
       {dm && (
@@ -287,10 +223,16 @@ export default function PoolBrowser({ mode = 'page', pickedIds = [], pendingIds 
           {dm.name}
         </span>
       )}
-      <h3 className="text-base font-medium text-ink-300 leading-snug pr-7 mb-2 line-clamp-2">
+      <h3 className={`text-base font-medium text-ink-300 leading-snug pr-7 mb-2 ${expanded ? '' : 'line-clamp-2'}`}>
         {n.title}
       </h3>
-      <p className="text-xs text-ink-50 leading-relaxed mb-3 line-clamp-2">{n.summary}</p>
+      {expanded ? (
+        <p className="text-xs text-ink-300 leading-relaxed mb-3 whitespace-pre-wrap max-h-72 overflow-y-auto">
+          {n.content || n.summary}
+        </p>
+      ) : (
+        <p className="text-xs text-ink-50 leading-relaxed mb-3 line-clamp-2">{n.summary}</p>
+      )}
       <div className="flex items-center gap-2 text-xs text-ink-50 mb-3">
         <span className="shrink-0">{n.source}</span>
         <span className="text-cream-400">·</span>
@@ -298,24 +240,12 @@ export default function PoolBrowser({ mode = 'page', pickedIds = [], pendingIds 
         <span className="text-cream-400">·</span>
         <span>{fmtNewsTime(n.created_at)}</span>
       </div>
-      <div className="flex items-center justify-between">
-        <div className="flex flex-wrap gap-1">
-          {n.keywords.slice(0, 3).map((kw) => (
-            <span key={kw} className="px-2 py-0.5 bg-cream-300 rounded-full text-xs text-ink-50">
-              {kw}
-            </span>
-          ))}
-        </div>
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            setDetailNews(n)
-          }}
-          title="查看详情"
-          className="p-1.5 rounded-lg text-ink-50 hover:text-ink-300 hover:bg-cream-300 transition-colors shrink-0"
-        >
-          <Eye className="w-4 h-4" />
-        </button>
+      <div className="flex flex-wrap gap-1">
+        {n.keywords.slice(0, 3).map((kw) => (
+          <span key={kw} className="px-2 py-0.5 bg-cream-300 rounded-full text-xs text-ink-50">
+            {kw}
+          </span>
+        ))}
       </div>
       </>
     )
@@ -328,39 +258,21 @@ export default function PoolBrowser({ mode = 'page', pickedIds = [], pendingIds 
           tabIndex={pending ? -1 : 0}
           data-news-id={n.id}
           data-picked={picked ? 'true' : undefined}
-          onClick={() => !pending && onTogglePick?.(n)}
+          onClick={handleCardClick}
           onKeyDown={(e) => {
             if ((e.key === 'Enter' || e.key === ' ') && !pending) {
               e.preventDefault()
-              onTogglePick?.(n)
+              toggleExpand()
             }
           }}
-          className={`relative bg-cream-200 rounded-2xl border p-4 transition-all cursor-pointer ${
+          title="单击看全文，点右上角勾选框加入/移出节目"
+          className={`relative bg-cream-200 rounded-2xl border p-4 transition-all cursor-pointer select-none ${
             picked
               ? 'border-accent-coral shadow-[0_0_0_1px_rgba(224,122,95,0.35)]'
               : 'border-cream-300 card-hover'
           } ${pending ? 'opacity-60 pointer-events-none' : ''}`}
         >
-          <span className="absolute top-3 right-3 inline-flex items-center">
-            {pending ? (
-              <Loader2 className="w-4 h-4 animate-spin text-accent-coral" />
-            ) : (
-              <AnimatePresence>
-                {picked && (
-                  <motion.span
-                    initial={{ scale: 0.6, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    exit={{ scale: 0.6, opacity: 0 }}
-                    transition={{ duration: 0.15, ease: 'easeOut' }}
-                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-accent-coral text-cream-100 text-xs font-medium"
-                  >
-                    <Check className="w-3 h-3" />
-                    已加入
-                  </motion.span>
-                )}
-              </AnimatePresence>
-            )}
-          </span>
+          {pickButton}
           {meta}
         </div>
       )
@@ -371,21 +283,13 @@ export default function PoolBrowser({ mode = 'page', pickedIds = [], pendingIds 
         key={n.id}
         data-news-id={n.id}
         data-picked={picked ? 'true' : undefined}
-        className={`relative bg-cream-200 rounded-2xl border p-4 transition-all card-hover ${
+        onClick={handleCardClick}
+        title="单击看全文，点右上角勾选框加入/移出待选"
+        className={`relative bg-cream-200 rounded-2xl border p-4 transition-all card-hover cursor-pointer select-none ${
           picked ? 'border-l-[3px] border-l-accent-coral border-cream-300' : 'border-cream-300'
         }`}
       >
-        <button
-          onClick={() => onTogglePick?.(n)}
-          title={picked ? '取消选择' : '选择'}
-          className={`absolute top-3 right-3 w-5 h-5 rounded-md border flex items-center justify-center transition-colors ${
-            picked
-              ? 'bg-accent-coral border-accent-coral'
-              : 'border-cream-400 bg-cream-100 hover:border-accent-coral'
-          }`}
-        >
-          {picked && <Check className="w-3.5 h-3.5 text-cream-100" />}
-        </button>
+        {pickButton}
         {meta}
       </div>
     )
@@ -403,7 +307,6 @@ export default function PoolBrowser({ mode = 'page', pickedIds = [], pendingIds 
     <div>
       {/* 工具栏 */}
       <div className="flex flex-wrap items-center gap-3 mb-4">
-        {viewToggle}
         <button
           onClick={handleFetch}
           disabled={fetching}
@@ -577,172 +480,6 @@ export default function PoolBrowser({ mode = 'page', pickedIds = [], pendingIds 
             {fetching ? '抓取中…' : '抓取新闻'}
           </button>
         )
-      ) : view === 'topics' ? (
-        clustering ? (
-          <div className="flex flex-col items-center py-20 bg-cream-200 rounded-2xl border border-cream-300 text-center">
-            <Loader2 className="w-6 h-6 animate-spin text-accent-coral mb-3" />
-            <p className="text-sm text-ink-300 mb-1">AI 正在归纳话题…</p>
-            <p className="text-xs text-ink-50">把同一件事的报道归到一起，省去你逐条排重</p>
-          </div>
-        ) : visibleTopics.length === 0 ? (
-          emptyBox(
-            <Star className="w-12 h-12 text-cream-500 mb-3" />,
-            '没有符合条件的话题，试试降低评分门槛',
-            <button
-              onClick={clearFilters}
-              className="px-5 h-10 rounded-xl bg-cream-100 border border-cream-300 text-sm text-ink-300 hover:bg-cream-300 transition-colors"
-            >
-              清除筛选
-            </button>
-          )
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-            {visibleTopics.map((t) => {
-              const rep = newsById[t.representativeId]
-              const repPicked = pickedIds.includes(t.representativeId)
-              const repPending = pendingSet.has(t.representativeId)
-              const expanded = expandedTopic === t.id
-              const others = t.newsIds.filter((nid) => nid !== t.representativeId)
-              const pickedLabel = mode === 'embed' ? '已加入' : '已选'
-              return (
-                <div
-                  key={t.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => {
-                    if (!rep) return
-                    if (mode === 'embed') {
-                      if (!repPending) onTogglePick?.(rep)
-                    } else {
-                      setDetailNews(rep)
-                    }
-                  }}
-                  onKeyDown={(e) => {
-                    if ((e.key === 'Enter' || e.key === ' ') && rep) {
-                      e.preventDefault()
-                      if (mode === 'embed') {
-                        if (!repPending) onTogglePick?.(rep)
-                      } else {
-                        setDetailNews(rep)
-                      }
-                    }
-                  }}
-                  title={mode === 'embed' ? '点击选中本话题' : '点击查看新闻全文'}
-                  className={`rounded-2xl border bg-cream-200 card-hover cursor-pointer ${
-                    repPicked
-                      ? 'border-l-[3px] border-l-accent-coral border-cream-300 shadow-[0_1px_3px_rgba(45,42,36,0.06)]'
-                      : 'border-cream-300 hover:border-cream-400'
-                  }`}
-                >
-                  <div className="flex items-start gap-3 p-4">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        if (rep && !repPending) onTogglePick?.(rep)
-                      }}
-                      disabled={!rep || repPending}
-                      title={repPicked ? `${pickedLabel}，再点一次取消` : '选中本话题（默认带代表报道）'}
-                      className={`mt-0.5 shrink-0 w-5 h-5 rounded-md border flex items-center justify-center transition-colors ${
-                        repPicked
-                          ? 'bg-accent-coral border-accent-coral'
-                          : 'border-cream-400 bg-cream-100 hover:border-accent-coral'
-                      } ${repPending ? 'opacity-60 cursor-wait' : ''}`}
-                    >
-                      {repPending ? (
-                        <Loader2 className="w-3 h-3 animate-spin text-accent-coral" />
-                      ) : (
-                        repPicked && <Check className="w-3.5 h-3.5 text-cream-100" />
-                      )}
-                    </button>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap mb-1">
-                        <h3 className="text-sm font-semibold text-ink-300">{t.title}</h3>
-                        <span className="px-2 py-0.5 rounded-full bg-cream-300 text-xs text-ink-50">
-                          {t.newsIds.length} 条报道
-                        </span>
-                        <StarRating score={t.topScore} />
-                      </div>
-                      <p className="text-xs text-ink-50 leading-relaxed line-clamp-2 mb-1.5">
-                        {t.summary}
-                      </p>
-                      <p className="text-xs text-ink-50">
-                        <span className="text-accent-coral font-medium">代表报道：</span>
-                        {rep?.title}
-                        {repPicked && <span className="ml-2 text-accent-sage">{pickedLabel}</span>}
-                      </p>
-                      {others.length > 0 && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setExpandedTopic(expanded ? null : t.id)
-                          }}
-                          className="mt-1.5 flex items-center gap-1 text-xs text-ink-50 hover:text-ink-300 transition-colors"
-                        >
-                          <ChevronDown
-                            className={`w-3.5 h-3.5 transition-transform ${expanded ? 'rotate-180' : ''}`}
-                          />
-                          {expanded ? '收起相关报道' : `展开 ${others.length} 条相关报道`}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  <AnimatePresence initial={false}>
-                    {expanded && others.length > 0 && (
-                      <motion.div
-                        initial={{ height: 0, opacity: 0 }}
-                        animate={{ height: 'auto', opacity: 1 }}
-                        exit={{ height: 0, opacity: 0 }}
-                        transition={{ duration: 0.2 }}
-                        className="overflow-hidden"
-                      >
-                        <div className="mx-4 mb-3 pt-2 border-t border-cream-300 space-y-0.5">
-                          {others.map((nid) => {
-                            const n = newsById[nid]
-                            if (!n) return null
-                            const rowPicked = pickedIds.includes(nid)
-                            const rowPending = pendingSet.has(nid)
-                            return (
-                              <button
-                                key={nid}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  if (!rowPending) onTogglePick?.(n)
-                                }}
-                                disabled={rowPending}
-                                className="w-full flex items-center gap-2 py-1.5 text-left group"
-                              >
-                                <span
-                                  className={`shrink-0 w-4 h-4 rounded border flex items-center justify-center transition-colors ${
-                                    rowPicked
-                                      ? 'bg-accent-coral border-accent-coral'
-                                      : 'border-cream-400 bg-cream-100 group-hover:border-accent-coral'
-                                  }`}
-                                >
-                                  {rowPending ? (
-                                    <Loader2 className="w-2.5 h-2.5 animate-spin text-accent-coral" />
-                                  ) : (
-                                    rowPicked && <Check className="w-3 h-3 text-cream-100" />
-                                  )}
-                                </span>
-                                <span className="text-xs text-ink-50 shrink-0 w-28 truncate">
-                                  {n.source} · {n.score} 分
-                                </span>
-                                <span className="text-xs text-ink-300 truncate">{n.title}</span>
-                                {rowPicked && (
-                                  <span className="text-[10px] text-accent-sage shrink-0">{pickedLabel}</span>
-                                )}
-                              </button>
-                            )
-                          })}
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              )
-            })}
-          </div>
-        )
       ) : filtered.length === 0 ? (
         emptyBox(
           <Search className="w-12 h-12 text-cream-500 mb-3" />,
@@ -784,71 +521,6 @@ export default function PoolBrowser({ mode = 'page', pickedIds = [], pendingIds 
           ))}
         </>
       )}
-
-      {/* 详情弹窗 */}
-      <AnimatePresence>
-        {detailNews && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
-            className="fixed inset-0 z-[85] flex items-center justify-center bg-[rgba(45,42,36,0.4)]"
-            onClick={() => setDetailNews(null)}
-          >
-            <motion.div
-              initial={{ y: 8, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              exit={{ y: 8, opacity: 0 }}
-              transition={{ duration: 0.2, ease: 'easeOut' }}
-              onClick={(e) => e.stopPropagation()}
-              className="w-full max-w-[640px] max-h-[80vh] overflow-y-auto bg-cream-100 rounded-3xl p-6 shadow-[0_8px_30px_rgba(45,42,36,0.12)] border border-cream-300"
-            >
-              <div className="flex items-start justify-between gap-4 mb-3">
-                <h2 className="text-lg font-semibold text-ink-300 leading-snug">{detailNews.title}</h2>
-                <button
-                  onClick={() => setDetailNews(null)}
-                  className="p-1.5 rounded-lg hover:bg-cream-200 text-ink-50 hover:text-ink-300 shrink-0"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-              <div className="flex flex-wrap items-center gap-3 text-xs text-ink-50 mb-4">
-                <span className="px-2 py-0.5 bg-cream-200 border border-cream-300 rounded-full">
-                  {detailNews.source}
-                </span>
-                {DOMAIN_MAP[domainById.get(detailNews.id)] && (
-                  <span className={`px-2 py-0.5 rounded-full ${DOMAIN_MAP[domainById.get(detailNews.id)].badge}`}>
-                    {DOMAIN_MAP[domainById.get(detailNews.id)].name}
-                  </span>
-                )}
-                <StarRating score={detailNews.score} />
-                <span>{fmtNewsTime(detailNews.created_at)}</span>
-              </div>
-              <div className="grid grid-cols-3 gap-2 mb-4">
-                {[
-                  ['时效性', detailNews.scores.timeliness],
-                  ['话题性', detailNews.scores.topic],
-                  ['深度', detailNews.scores.depth],
-                ].map(([label, val]) => (
-                  <div key={label} className="bg-cream-200 rounded-xl border border-cream-300 p-3 text-center">
-                    <p className="text-xs text-ink-50 mb-1">{label}</p>
-                    <p className="text-lg font-display font-semibold text-ink-300">{val}</p>
-                  </div>
-                ))}
-              </div>
-              <p className="text-sm text-ink-300 leading-relaxed mb-4">{detailNews.content}</p>
-              <div className="flex flex-wrap gap-1.5">
-                {detailNews.keywords.map((kw) => (
-                  <span key={kw} className="px-2 py-0.5 bg-cream-300 rounded-full text-xs text-ink-50">
-                    {kw}
-                  </span>
-                ))}
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   )
 }
