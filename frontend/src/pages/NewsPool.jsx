@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Newspaper } from 'lucide-react'
-import { episodesApi, humanizeError } from '../services/api'
+import { X, Newspaper, ListChecks } from 'lucide-react'
+import { episodesApi, newsApi, humanizeError } from '../services/api'
 import { useToast } from '../components/Toast'
 import PoolBrowser from '../components/PoolBrowser'
 
@@ -10,6 +10,8 @@ export default function NewsPool() {
   const [episodes, setEpisodes] = useState([])
   const [selected, setSelected] = useState([])
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [cartOpen, setCartOpen] = useState(false)
+  const [poolNews, setPoolNews] = useState([]) // 待选清单里展示标题用
   const [epNewsCounts, setEpNewsCounts] = useState({}) // 节目选择器里"已有素材 N 条"
 
   useEffect(() => {
@@ -19,6 +21,16 @@ export default function NewsPool() {
       .catch((e) => toast.error(humanizeError(e)))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // 首次打开待选清单时拉一次新闻池，把 id 映射回标题
+  useEffect(() => {
+    if (!cartOpen || poolNews.length > 0) return
+    newsApi
+      .list({ limit: 200 })
+      .then(setPoolNews)
+      .catch((e) => toast.error(humanizeError(e)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cartOpen])
 
   // 打开节目选择器时，并行拉取各候选节目的素材数
   useEffect(() => {
@@ -58,7 +70,7 @@ export default function NewsPool() {
         <p className="text-sm text-ink-50">抓取热点，自动评分，挑好料再做节目</p>
       </div>
 
-      {/* 浏览能力（全景/工具栏/话题/列表/详情）与节目页内嵌选料共用 */}
+      {/* 浏览能力（全景/工具栏/列表/详情）与节目页内嵌选料共用 */}
       <PoolBrowser mode="page" pickedIds={selected} onTogglePick={(n) => toggleSelect(n.id)} />
 
       {/* 批量添加浮条 */}
@@ -71,7 +83,14 @@ export default function NewsPool() {
             transition={{ duration: 0.2, ease: 'easeOut' }}
             className="fixed bottom-6 left-[calc(50%+8rem)] -translate-x-1/2 z-[70] flex items-center gap-4 bg-ink-300 text-cream-100 rounded-2xl pl-5 pr-3 py-3 shadow-[0_8px_30px_rgba(31,31,31,0.3)]"
           >
-            <span className="text-sm">已选 {selected.length} 条</span>
+            <button
+              onClick={() => setCartOpen((v) => !v)}
+              title="查看待选清单"
+              className="flex items-center gap-1.5 text-sm hover:text-accent-coral transition-colors"
+            >
+              <ListChecks className="w-4 h-4" />
+              已选 {selected.length} 条
+            </button>
             <button
               onClick={() => setSelected([])}
               className="text-xs text-cream-100/60 hover:text-cream-100"
@@ -84,6 +103,48 @@ export default function NewsPool() {
             >
               添加到节目
             </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 待选清单弹层：逐条查看 / 移除 */}
+      <AnimatePresence>
+        {cartOpen && selected.length > 0 && (
+          <motion.div
+            initial={{ y: 16, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 16, opacity: 0 }}
+            transition={{ duration: 0.15, ease: 'easeOut' }}
+            className="fixed bottom-24 left-[calc(50%+8rem)] -translate-x-1/2 z-[70] w-96 bg-cream-100 rounded-2xl border border-cream-300 shadow-[0_8px_30px_rgba(45,42,36,0.15)] p-4"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-semibold text-ink-300">待选清单（{selected.length} 条）</h3>
+              <button
+                onClick={() => setCartOpen(false)}
+                className="p-1 rounded-lg hover:bg-cream-200 text-ink-50 hover:text-ink-300"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <ul className="max-h-64 overflow-y-auto -mx-1 px-1 space-y-0.5">
+              {selected.map((id) => {
+                const item = poolNews.find((n) => n.id === id)
+                return (
+                  <li key={id} className="group flex items-center gap-2 py-1.5">
+                    <span className="flex-1 min-w-0 text-xs text-ink-300 truncate" title={item?.title}>
+                      {item?.title || `新闻 #${id}`}
+                    </span>
+                    <button
+                      onClick={() => toggleSelect(id)}
+                      title="移出待选"
+                      className="shrink-0 p-1 rounded-md text-ink-50 opacity-0 group-hover:opacity-100 hover:text-accent-coral hover:bg-cream-200 transition-all"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
           </motion.div>
         )}
       </AnimatePresence>

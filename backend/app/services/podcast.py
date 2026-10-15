@@ -7,8 +7,7 @@ import os
 import logging
 from typing import Optional
 
-from app.core.config import settings
-from app.services.llm import DeepSeekService
+from app.services.llm import MiniMaxLLMService
 from app.services.tts import MiniMaxTTSService
 
 logger = logging.getLogger(__name__)
@@ -18,20 +17,19 @@ class PodcastService:
     def __init__(self):
         self.llm = None
         self.tts = None
-        
-        # Initialize services if API keys are available
-        if settings.DEEPSEEK_API_KEY:
-            self.llm = DeepSeekService(
-                api_key=settings.DEEPSEEK_API_KEY,
-                model=settings.DEEPSEEK_MODEL
-            )
-            logger.info("DeepSeek LLM service initialized")
-        else:
-            logger.warning("DEEPSEEK_API_KEY not set, LLM service not available")
-            
-        # 实时读 env（pydantic-settings 缓存的 settings.MINIMAX_API_KEY 是启动时的快照，
+
+        # 实时读 env（pydantic-settings 缓存的是启动时的快照，
         # 不能反映前端 GUI 改 .env 后的新值 —— 所以这里直接读 os.environ）
-        if os.getenv("MINIMAX_API_KEY") or os.getenv("MINIMAX_CN_API_KEY"):
+        minimax_key = os.getenv("MINIMAX_API_KEY") or os.getenv("MINIMAX_CN_API_KEY")
+
+        # LLM 与 TTS 共用 MiniMax Key
+        if minimax_key:
+            self.llm = MiniMaxLLMService(api_key=minimax_key)
+            logger.info("MiniMax LLM service initialized")
+        else:
+            logger.warning("MINIMAX_API_KEY not set, LLM service not available")
+
+        if minimax_key:
             self.tts = MiniMaxTTSService()
             logger.info("MiniMax TTS service initialized")
         else:
@@ -44,7 +42,7 @@ class PodcastService:
         max_tokens: int = 4096
     ) -> str:
         """
-        Generate podcast script from news content using DeepSeek
+        Generate podcast script from news content using MiniMax LLM
         
         Args:
             news_content: The news article content
@@ -55,7 +53,7 @@ class PodcastService:
             Generated script text
         """
         if not self.llm:
-            raise RuntimeError("LLM service not initialized. Please set DEEPSEEK_API_KEY")
+            raise RuntimeError("LLM service not initialized. Please set MINIMAX_API_KEY")
         
         from app.services.llm import PODCAST_USER_TEMPLATE
         
@@ -90,7 +88,7 @@ class PodcastService:
             Full episode script text
         """
         if not self.llm:
-            raise RuntimeError("LLM service not initialized. Please set DEEPSEEK_API_KEY")
+            raise RuntimeError("LLM service not initialized. Please set MINIMAX_API_KEY")
 
         from app.services.llm import PODCAST_SYSTEM_PROMPT, PODCAST_USER_TEMPLATE, get_intro
 
@@ -155,7 +153,7 @@ class PodcastService:
             parsing is left to the caller)
         """
         if not self.llm:
-            raise RuntimeError("LLM service not initialized. Please set DEEPSEEK_API_KEY")
+            raise RuntimeError("LLM service not initialized. Please set MINIMAX_API_KEY")
 
         from app.services.llm import TITLE_SUGGESTION_PROMPT
 
@@ -198,7 +196,7 @@ class PodcastService:
             Article Markdown text
         """
         if not self.llm:
-            raise RuntimeError("LLM service not initialized. Please set DEEPSEEK_API_KEY")
+            raise RuntimeError("LLM service not initialized. Please set MINIMAX_API_KEY")
 
         from app.services.llm import ARTICLE_PROMPT
 

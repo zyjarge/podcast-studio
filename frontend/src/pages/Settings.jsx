@@ -340,11 +340,9 @@ function RssTab() {
 // ── API 配置 ──
 function ApiTab() {
   const toast = useToast()
-  const [deepseekKey, setDeepseekKey] = useState('')
   const [minimaxKey, setMinimaxKey] = useState('')
   const [initialKeys, setInitialKeys] = useState({})
   const [apiStatus, setApiStatus] = useState({})
-  const [showDs, setShowDs] = useState(false)
   const [showMm, setShowMm] = useState(false)
   const [saving, setSaving] = useState(false)
 
@@ -353,11 +351,10 @@ function ApiTab() {
       .getEnvKeys()
       .then((keys) => {
         setInitialKeys(keys)
-        setDeepseekKey(keys.DEEPSEEK_API_KEY || '')
         setMinimaxKey(keys.MINIMAX_API_KEY || '')
       })
       .catch((e) => toast.error(humanizeError(e)))
-    // 连接状态检查会真实调用 DeepSeek / MiniMax，失败不打扰（徽章保持"未验证"）
+    // 连接状态检查会真实调用 MiniMax LLM / TTS，失败不打扰（徽章保持"未验证"）
     settingsApi
       .getApiStatus()
       .then(setApiStatus)
@@ -382,9 +379,6 @@ function ApiTab() {
     try {
       // 只回写用户真正改过的 Key（输入框里是掩码值，原样保存会覆盖真 Key）
       const jobs = []
-      if (deepseekKey.trim() && deepseekKey.trim() !== (initialKeys.DEEPSEEK_API_KEY || '')) {
-        jobs.push(settingsApi.updateEnv('DEEPSEEK_API_KEY', deepseekKey.trim()))
-      }
       if (minimaxKey.trim() && minimaxKey.trim() !== (initialKeys.MINIMAX_API_KEY || '')) {
         jobs.push(settingsApi.updateEnv('MINIMAX_API_KEY', minimaxKey.trim()))
       }
@@ -397,12 +391,12 @@ function ApiTab() {
       if (keys) setInitialKeys(keys)
       if (status) {
         const bad = []
-        if (!status.deepseek?.connected) bad.push('DeepSeek')
-        if (!status.minimax?.connected) bad.push('MiniMax')
+        if (!status.llm?.connected) bad.push('剧本生成')
+        if (!status.tts?.connected) bad.push('语音合成')
         if (bad.length === 0) {
           toast.success('已保存，连接验证通过')
         } else {
-          toast.error(`${bad.join('、')} 的 Key 无效或未配置，请到 设置 → API 配置 检查`)
+          toast.error(`MiniMax 的${bad.join('、')}不可用，请检查 Key`)
         }
       } else {
         toast.success('已保存')
@@ -441,10 +435,9 @@ function ApiTab() {
 
   return (
     <div className="space-y-5 max-w-lg">
-      {field('DeepSeek API Key', deepseekKey, setDeepseekKey, showDs, setShowDs, apiStatus.deepseek?.connected, 'sk-…')}
-      {field('MiniMax API Key', minimaxKey, setMinimaxKey, showMm, setShowMm, apiStatus.minimax?.connected, 'eyJ…')}
+      {field('MiniMax API Key', minimaxKey, setMinimaxKey, showMm, setShowMm, apiStatus.llm?.connected && apiStatus.tts?.connected, 'eyJ…')}
       <p className="text-xs text-ink-50 leading-relaxed bg-cream-200 rounded-xl border border-cream-300 px-3 py-2.5">
-        DeepSeek 的 Key 已保存，重启后端后生效；MiniMax 的 Key 即时生效。
+        MiniMax 的 Key 同时用于剧本生成（LLM）与语音合成（TTS），保存后即时生效，无需重启。
       </p>
       <button
         onClick={handleSave}
