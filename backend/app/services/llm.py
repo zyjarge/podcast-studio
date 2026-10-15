@@ -56,10 +56,9 @@ PODCAST_USER_TEMPLATE = PROMPTS.get("podcast_user_template", """请根据以下�
 # Fixed intro (not passed to LLM)
 INTRO_TEXT = PROMPTS.get("intro_text", "")
 
-# 候选标题 / 公众号图文 / 话题聚类提示词
+# 候选标题 / 公众号图文提示词
 TITLE_SUGGESTION_PROMPT = PROMPTS.get("title_suggestion_prompt", "")
 ARTICLE_PROMPT = PROMPTS.get("article_prompt", "")
-TOPIC_CLUSTER_PROMPT = PROMPTS.get("topic_cluster_prompt", "")
 
 
 def get_intro() -> str:

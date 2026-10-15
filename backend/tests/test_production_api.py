@@ -3,7 +3,7 @@
 
 - episodes 新字段 notes/article/title_suggestions/cover_choice 的读写
 - PUT status=published 时写入 published_at（重复发布不覆盖）
-- generate-titles / generate-article / cluster-topics 契约测试（mock LLM，
+- generate-titles / generate-article 契约测试（mock LLM，
   只断言响应结构与落库行为，不断言真实 LLM 输出）
 """
 import json
@@ -18,7 +18,6 @@ from app.db.session import Base, get_db
 from app.db import models  # noqa: F401  确保所有表注册到 metadata
 from app.db.models import News
 from app.services import podcast as podcast_module
-from app.api.v1.endpoints import news as news_endpoint
 
 
 @pytest.fixture()
@@ -320,75 +319,6 @@ class TestGenerateArticle:
 
         resp = http.post(f"/api/v1/episodes/{ep_id}/generate-article")
         assert resp.status_code == 400
-
-
-class TestClusterTopics:
-    """POST /news/cluster-topics 契约测试"""
-
-    def test_cluster_topics_empty(self, client):
-        http, _ = client
-        resp = http.post("/api/v1/news/cluster-topics")
-        assert resp.status_code == 200
-        assert resp.json() == {"topics": []}
-
-    def test_cluster_topics_llm_path(self, client, monkeypatch):
-        http, SessionLocal = client
-        n1 = _create_news(SessionLocal, "AI 大模型发布", score=80)
-
-        fake_topics = [{"title": "AI 话题", "summary": "一句话概括", "news_ids": [n1]}]
-        monkeypatch.setattr(
-            news_endpoint, "_cluster_topics_with_llm", lambda news_list: fake_topics
-        )
-
-        resp = http.post("/api/v1/news/cluster-topics")
-        assert resp.status_code == 200
-        assert resp.json()["topics"] == fake_topics
-
-    def test_cluster_topics_heuristic_fallback(self, client, monkeypatch):
-        """LLM 失败时降级为关键词重叠启发式聚类"""
-        http, SessionLocal = client
-        a = _create_news(
-            SessionLocal, "大模型 A 发布", summary="A 的摘要",
-            keywords=["AI", "大模型"], score=80,
-        )
-        b = _create_news(
-            SessionLocal, "大模型 B 开源", summary="B 的摘要",
-            keywords=["AI", "开源"], score=60,
-        )
-        c = _create_news(
-            SessionLocal, "新能源车降价", summary="C 的摘要",
-            keywords=["汽车", "新能源"], score=70,
-        )
-
-        def boom(news_list):
-            raise RuntimeError("LLM service not initialized")
-
-        monkeypatch.setattr(news_endpoint, "_cluster_topics_with_llm", boom)
-
-        resp = http.post("/api/v1/news/cluster-topics")
-        assert resp.status_code == 200
-        topics = resp.json()["topics"]
-        assert len(topics) == 2
-
-        # 共享关键词 "AI" 的 a、b 归为一簇
-        by_size = sorted(topics, key=lambda t: -len(t["news_ids"]))
-        big, small = by_size
-        assert big["news_ids"] == [a, b]  # 组内按分数降序
-        assert "AI" in big["title"]
-        assert big["summary"] == "A 的摘要"  # 组内最高分新闻的摘要
-        assert small["news_ids"] == [c]
-
-        # 话题按组内最高分排序：a/b 簇(80) 在 c 簇(70) 前
-        assert topics[0]["news_ids"] == [a, b]
-        assert topics[1]["news_ids"] == [c]
-
-    def test_parse_keywords_defensive(self):
-        """keywords 列正常是 list，也兼容历史数据里的 JSON 字符串"""
-        assert news_endpoint._parse_keywords(["AI", " 芯片 "]) == ["AI", "芯片"]
-        assert news_endpoint._parse_keywords('["AI", "芯片"]') == ["AI", "芯片"]
-        assert news_endpoint._parse_keywords("not json") == []
-        assert news_endpoint._parse_keywords(None) == []
-        assert news_endpoint._parse_keywords({"k": 1}) == []
 
 
 class TestFetchNewsResults:

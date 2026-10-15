@@ -148,7 +148,6 @@ export const newsApi = {
     request(`/news/?sort_by=${sortBy}&order=${order}&limit=${limit}`),
   fetch: (sourceId) =>
     request(`/news/fetch${sourceId ? `?source_id=${sourceId}` : ''}`, { method: 'POST' }),
-  clusterTopics: () => request('/news/cluster-topics', { method: 'POST' }),
 }
 
 // RSS Sources API
