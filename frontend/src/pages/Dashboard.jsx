@@ -100,7 +100,7 @@ export default function Dashboard() {
   const hasSources = sources.some((s) => s.enabled)
   const showOnboarding = !onboardingDismissed && !loading && !loadError && (!hasKeys || !hasSources)
 
-  // 开始今日节目：后台抓取 → 创建节目 → 进入详情并自动打开选料抽屉
+  // 开始今日节目：后台抓取 → 创建节目 → 进入详情并自动进入选料模式
   const handleStartToday = async () => {
     if (starting) return
     setStarting(true)

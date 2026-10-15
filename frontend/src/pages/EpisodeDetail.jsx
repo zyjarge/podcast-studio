@@ -40,7 +40,7 @@ import { useToast } from '../components/Toast'
 import ConfirmDialog from '../components/ConfirmDialog'
 import CoverSection from '../components/CoverSection'
 import ArticlePanel from '../components/ArticlePanel'
-import MaterialDrawer from '../components/MaterialDrawer'
+import PoolBrowser from '../components/PoolBrowser'
 
 const countChars = (text) => (text || '').replace(/\s/g, '').length
 
@@ -228,6 +228,9 @@ export default function EpisodeDetail() {
       setEpisode(ep)
       setEpNewsList(epNews)
       setNewsById(Object.fromEntries(allNews.map((n) => [n.id, n])))
+      // 进入选料模式：URL 带了 picker=1（新建节目跳转），或节目还没有素材
+      // （从闭包读 searchParams：StrictMode 下 load 会跑两次，两次读到的都是导航时的快照，不会互相覆盖）
+      setPicking(searchParams.get('picker') === '1' || epNews.length === 0)
     } catch (e) {
       setLoadError(humanizeError(e))
     } finally {
@@ -300,14 +303,16 @@ export default function EpisodeDetail() {
   // 手风琴展开
   const [expandedId, setExpandedId] = useState(null)
 
-  // 选料抽屉
-  const [drawerOpen, setDrawerOpen] = useState(false)
+  // 选料模式：右栏整个区域变为新闻池浏览，点选即加入/移出
+  const [picking, setPicking] = useState(false)
+  const [pendingPicks, setPendingPicks] = useState(() => new Set())
+  // picker=1 是一次性入口参数： load() 据此进入选料模式，这里负责进模式 + 清掉参数
   useEffect(() => {
-    if (searchParams.get('picker') === '1' && episode) {
-      setDrawerOpen(true)
+    if (searchParams.get('picker') === '1') {
+      setPicking(true)
       setSearchParams({}, { replace: true })
     }
-  }, [searchParams, episode, setSearchParams])
+  }, [searchParams, setSearchParams])
 
   // 逐字稿
   const [scriptGenerating, setScriptGenerating] = useState(false)
@@ -434,6 +439,10 @@ export default function EpisodeDetail() {
   const audioUrl = `${episodeAudioUrl(id)}${audioVersion ? `?v=${audioVersion}` : ''}`
   const titleSuggestions = parseJsonField(episode.title_suggestions, [])
 
+  // 选料任务栏的体量估计：素材正文字数 ×3 ≈ 逐字稿体量，150 字/分钟（沿用原抽屉的估计口径）
+  const pickedChars = episodeNews.reduce((sum, n) => sum + countChars(n.content), 0)
+  const pickedMinutes = pickedChars > 0 ? Math.max(5, Math.ceil((pickedChars * 3) / 150)) : 0
+
   const saveTitle = () => {
     const v = titleDraft.trim()
     if (v && v !== episode.title) {
@@ -521,13 +530,27 @@ export default function EpisodeDetail() {
     }
   }
 
-  const handleAddNews = async (newIds) => {
+  /** 选料模式点选：未加入 → 立即加入节目；已加入 → 移出（复用软删除 + 撤销） */
+  const handleTogglePick = async (newsItem) => {
+    const newsId = newsItem.id
+    if (pendingPicks.has(newsId)) return
+    if (epNewsList.some((en) => en.news_id === newsId)) {
+      handleRemoveNews(newsId)
+      return
+    }
+    setPendingPicks((s) => new Set(s).add(newsId))
     try {
-      await episodesApi.addNews(id, newIds)
+      await episodesApi.addNews(id, [newsId])
       await refreshEpisodeNews()
-      toast.success(`已加入「${episode.title}」（${newIds.length} 条）`)
+      toast.success('已加入')
     } catch (e) {
       toast.error(humanizeError(e))
+    } finally {
+      setPendingPicks((s) => {
+        const next = new Set(s)
+        next.delete(newsId)
+        return next
+      })
     }
   }
 
@@ -785,9 +808,9 @@ export default function EpisodeDetail() {
           {episodeNews.length === 0 ? (
             <div className="flex flex-col items-center text-center py-10 px-4">
               <Newspaper className="w-12 h-12 text-cream-500 mb-3" />
-              <p className="text-sm text-ink-50 mb-4">先在左侧添加新闻，AI 才能开始写稿</p>
+              <p className="text-sm text-ink-50 mb-4">先在右侧点选新闻，AI 才能开始写稿</p>
               <button
-                onClick={() => setDrawerOpen(true)}
+                onClick={() => setPicking(true)}
                 className="flex items-center gap-2 px-4 h-10 rounded-xl bg-accent-coral text-cream-100 text-sm font-medium hover:bg-accent-coral/90 transition-colors"
               >
                 <Plus className="w-4 h-4" />
@@ -825,7 +848,7 @@ export default function EpisodeDetail() {
                 </SortableContext>
               </DndContext>
               <button
-                onClick={() => setDrawerOpen(true)}
+                onClick={() => setPicking(true)}
                 className="w-full flex items-center justify-center gap-2 h-11 rounded-2xl border border-dashed border-cream-400 text-sm text-ink-50 hover:text-ink-300 hover:border-cream-500 hover:bg-cream-200 transition-colors"
               >
                 <Plus className="w-4 h-4" />
@@ -836,7 +859,39 @@ export default function EpisodeDetail() {
         </div>
       </div>
 
-      {/* ── 右栏：工作区（宽屏时分为 内容列 | 产出列 两列） ── */}
+      {/* ── 右栏：选料模式 = 新闻池浏览；否则 = 工作区（宽屏时分为 内容列 | 产出列 两列） ── */}
+      {picking ? (
+        <div className="flex-1 min-w-0 px-6 pb-6">
+          {/* 选料任务栏：吸顶，随时可收尾回工作区 */}
+          <div className="sticky top-0 z-20 -mx-6 px-6 pt-5 pb-3 bg-cream-100">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl border border-cream-300 bg-cream-200 px-4 py-3 shadow-[0_1px_3px_rgba(45,42,36,0.06)]">
+              <Newspaper className="w-4 h-4 text-accent-coral shrink-0" />
+              <p className="flex-1 min-w-0 text-sm text-ink-300 truncate">
+                正在为「<span className="font-medium">{episode.title}</span>」选料
+                <span className="text-ink-50">
+                  {' '}· 已选 {episodeNews.length} 条
+                  {pickedChars > 0 &&
+                    ` · 约 ${pickedChars.toLocaleString('zh-CN')} 字 · 预计 ${pickedMinutes} 分钟`}
+                </span>
+              </p>
+              <button
+                onClick={() => setPicking(false)}
+                disabled={episodeNews.length === 0}
+                title={episodeNews.length === 0 ? '先点选几条新闻' : '回到工作区'}
+                className="shrink-0 px-5 h-10 rounded-xl bg-accent-coral text-cream-100 text-sm font-medium hover:bg-accent-coral/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                完成选料
+              </button>
+            </div>
+          </div>
+          <PoolBrowser
+            mode="embed"
+            pickedIds={newsIds}
+            pendingIds={[...pendingPicks]}
+            onTogglePick={handleTogglePick}
+          />
+        </div>
+      ) : (
       <div className="flex-1 min-w-0 p-6">
         <div className="mx-auto w-full max-w-[1440px] grid grid-cols-1 min-[1600px]:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] gap-5 items-start">
           <div className="space-y-5 min-w-0">
@@ -977,7 +1032,7 @@ export default function EpisodeDetail() {
               <FileText className="w-12 h-12 text-cream-500 mb-3" />
               <p className="text-sm text-ink-50 mb-1">还没有逐字稿</p>
               <p className="text-xs text-ink-50 mb-4">
-                {episodeNews.length === 0 ? '先在左侧添加新闻' : '素材就绪，可以开始写稿了'}
+                {episodeNews.length === 0 ? '先点「添加新闻」挑好素材' : '素材就绪，可以开始写稿了'}
               </p>
               <button
                 onClick={runGenerateScript}
@@ -1099,14 +1154,7 @@ export default function EpisodeDetail() {
           </div>
         </div>
       </div>
-
-      {/* 选料抽屉 */}
-      <MaterialDrawer
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        episodeId={id}
-        onAdd={handleAddNews}
-      />
+      )}
 
       {/* 覆盖逐字稿确认 */}
       <ConfirmDialog
