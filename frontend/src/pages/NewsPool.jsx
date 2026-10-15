@@ -180,6 +180,45 @@ export default function NewsPool() {
         <p className="text-sm text-ink-50">抓取热点，自动评分，挑好料再做节目</p>
       </div>
 
+      {/* 工具栏 */}
+      <div className="flex flex-wrap items-center gap-3 mb-4">
+        <button
+          onClick={handleFetch}
+          disabled={fetching}
+          className="flex items-center gap-2 px-4 h-10 bg-accent-coral text-cream-100 rounded-xl text-sm font-medium hover:bg-accent-coral/90 transition-colors disabled:opacity-60"
+        >
+          {fetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+          {fetching ? '抓取中…' : '抓取新闻'}
+        </button>
+        <span className="text-xs text-ink-50">上次抓取 {lastFetchText}</span>
+
+        <div className="relative flex-1 min-w-[200px] max-w-sm ml-auto">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-ink-50" />
+          <input
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            placeholder="搜索标题、摘要或关键词"
+            className="w-full h-10 pl-9 pr-3 bg-cream-200 border border-cream-300 rounded-xl text-sm focus:outline-none focus:border-accent-coral"
+          />
+        </div>
+
+        <div className="flex gap-1.5">
+          {SCORE_FILTERS.map((f) => (
+            <button
+              key={f.value}
+              onClick={() => setMinScore(f.value)}
+              className={`px-3 h-9 rounded-xl text-xs font-medium transition-colors ${
+                minScore === f.value
+                  ? 'bg-ink-300 text-cream-100'
+                  : 'bg-cream-200 text-ink-50 hover:bg-cream-300 border border-cream-300'
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* 今日热点总览：领域卡片墙，点击下钻 */}
       {!loading && !loadError && news.length > 0 && (
         <div className="mb-6">
@@ -261,45 +300,6 @@ export default function NewsPool() {
           </div>
         </div>
       )}
-
-      {/* 工具栏 */}
-      <div className="flex flex-wrap items-center gap-3 mb-4">
-        <button
-          onClick={handleFetch}
-          disabled={fetching}
-          className="flex items-center gap-2 px-4 h-10 bg-accent-coral text-cream-100 rounded-xl text-sm font-medium hover:bg-accent-coral/90 transition-colors disabled:opacity-60"
-        >
-          {fetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-          {fetching ? '抓取中…' : '抓取新闻'}
-        </button>
-        <span className="text-xs text-ink-50">上次抓取 {lastFetchText}</span>
-
-        <div className="relative flex-1 min-w-[200px] max-w-sm ml-auto">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-ink-50" />
-          <input
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
-            placeholder="搜索标题、摘要或关键词"
-            className="w-full h-10 pl-9 pr-3 bg-cream-200 border border-cream-300 rounded-xl text-sm focus:outline-none focus:border-accent-coral"
-          />
-        </div>
-
-        <div className="flex gap-1.5">
-          {SCORE_FILTERS.map((f) => (
-            <button
-              key={f.value}
-              onClick={() => setMinScore(f.value)}
-              className={`px-3 h-9 rounded-xl text-xs font-medium transition-colors ${
-                minScore === f.value
-                  ? 'bg-ink-300 text-cream-100'
-                  : 'bg-cream-200 text-ink-50 hover:bg-cream-300 border border-cream-300'
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
-      </div>
 
       {/* 来源芯片多选 */}
       <div className="flex flex-wrap items-center gap-2 mb-6">
