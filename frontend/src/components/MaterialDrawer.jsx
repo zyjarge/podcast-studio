@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, Check, Star, Search, Layers, LayoutGrid, ChevronDown, Loader2 } from 'lucide-react'
 import { newsApi, episodesApi, normalizeNews, humanizeError } from '../services/api'
+import { classifyNews, domainStats, SCORE_SEGMENTS } from '../lib/domains'
 import { useToast } from './Toast'
 import StarRating from './StarRating'
 
@@ -53,10 +54,21 @@ export default function MaterialDrawer({ open, onClose, episodeId, onAdd }) {
   const [view, setView] = useState('topics') // 'topics' | 'list'
   const [clustering, setClustering] = useState(false)
   const [expandedTopic, setExpandedTopic] = useState(null)
+  const [activeDomain, setActiveDomain] = useState(null) // 领域过滤（null = 全部）
   // 话题缓存：新闻池没变（条数 + 最新一条 id 相同）时重开抽屉不重复聚类
   const topicsSigRef = useRef('')
 
   const newsById = useMemo(() => Object.fromEntries(news.map((n) => [n.id, n])), [news])
+
+  // 领域归类：新闻 id → 领域 id；全景统计基于"可选池"（排除已在节目中的）
+  const domainById = useMemo(
+    () => Object.fromEntries(news.map((n) => [n.id, classifyNews(n)])),
+    [news]
+  )
+  const domainOverview = useMemo(
+    () => domainStats(news.filter((n) => !inEpisode.includes(n.id))),
+    [news, inEpisode]
+  )
 
   // 打开抽屉时拉取新闻池 + 节目内已有素材；新闻池有更新则重新归纳话题
   useEffect(() => {
@@ -97,10 +109,11 @@ export default function MaterialDrawer({ open, onClose, episodeId, onAdd }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
-  // 话题视图：按话题最高分过滤 + 关键词搜索（话题名/组内新闻）
+  // 话题视图：按话题最高分过滤 + 关键词搜索（话题名/组内新闻）+ 领域过滤
   const visibleTopics = useMemo(() => {
     return topics
       .filter((t) => t.topScore >= minScore)
+      .filter((t) => !activeDomain || t.newsIds.some((id) => domainById[id] === activeDomain))
       .filter((t) => {
         if (!keyword.trim()) return true
         const k = keyword.trim().toLowerCase()
@@ -114,13 +127,14 @@ export default function MaterialDrawer({ open, onClose, episodeId, onAdd }) {
           )
         })
       })
-  }, [topics, minScore, keyword, newsById])
+  }, [topics, minScore, keyword, newsById, activeDomain, domainById])
 
   // 列表视图（平铺兜底）
   const candidates = useMemo(() => {
     return news
       .filter((n) => !inEpisode.includes(n.id))
       .filter((n) => n.score >= minScore)
+      .filter((n) => !activeDomain || domainById[n.id] === activeDomain)
       .filter((n) => {
         if (!keyword.trim()) return true
         const k = keyword.trim().toLowerCase()
@@ -131,7 +145,7 @@ export default function MaterialDrawer({ open, onClose, episodeId, onAdd }) {
         )
       })
       .sort((a, b) => b.score - a.score)
-  }, [news, inEpisode, minScore, keyword])
+  }, [news, inEpisode, minScore, keyword, activeDomain, domainById])
 
   const selectedNews = useMemo(
     () => news.filter((n) => selected.includes(n.id)),
@@ -172,6 +186,7 @@ export default function MaterialDrawer({ open, onClose, episodeId, onAdd }) {
   const handleClose = () => {
     setSelected([])
     setKeyword('')
+    setActiveDomain(null)
     onClose()
   }
 
@@ -256,6 +271,58 @@ export default function MaterialDrawer({ open, onClose, episodeId, onAdd }) {
                         {f.label}
                       </button>
                     ))}
+                  </div>
+                </div>
+
+                {/* 领域全景条：点击按领域过滤话题/列表（与新闻池同一套归类） */}
+                <div className="px-5 pt-2.5 pb-2 border-b border-cream-300">
+                  <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+                    <button
+                      onClick={() => setActiveDomain(null)}
+                      className={`w-[86px] shrink-0 rounded-xl border px-3 py-2 text-left transition-all ${
+                        activeDomain === null
+                          ? 'border-accent-coral bg-cream-100 shadow-sm'
+                          : 'border-cream-300 bg-cream-200 hover:border-cream-400'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-1 mb-1.5">
+                        <span className="text-xs font-medium text-ink-300">全部</span>
+                        <span className="text-[10px] text-ink-50">{news.length - inEpisode.length}</span>
+                      </div>
+                      <div className="h-1 rounded-full bg-cream-300" />
+                    </button>
+                    {domainOverview.map((d) => {
+                      const active = activeDomain === d.id
+                      return (
+                        <button
+                          key={d.id}
+                          onClick={() => setActiveDomain(active ? null : d.id)}
+                          disabled={d.count === 0}
+                          title={d.count === 0 ? '该领域暂无新闻' : `${d.name}：${d.count} 条`}
+                          className={`w-[120px] shrink-0 rounded-xl border px-3 py-2 text-left transition-all ${
+                            active
+                              ? 'border-accent-coral bg-cream-100 shadow-sm'
+                              : 'border-cream-300 bg-cream-200 hover:border-cream-400'
+                          } ${d.count === 0 ? 'opacity-40 cursor-default' : ''}`}
+                        >
+                          <div className="flex items-center justify-between gap-1 mb-1.5">
+                            <span className="text-xs font-medium text-ink-300 truncate">{d.name}</span>
+                            <span className="text-[10px] text-ink-50 shrink-0">{d.count}</span>
+                          </div>
+                          <div className="flex h-1 rounded-full overflow-hidden bg-cream-300">
+                            {SCORE_SEGMENTS.map((s) =>
+                              d.dist[s.key] > 0 ? (
+                                <span
+                                  key={s.key}
+                                  className={s.barClass}
+                                  style={{ width: `${(d.dist[s.key] / d.count) * 100}%` }}
+                                />
+                              ) : null
+                            )}
+                          </div>
+                        </button>
+                      )
+                    })}
                   </div>
                 </div>
 
