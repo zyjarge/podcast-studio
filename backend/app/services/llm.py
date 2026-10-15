@@ -102,10 +102,18 @@ class DeepSeekService:
     def __init__(self, api_key: Optional[str] = None, model: str = None):
         self.api_key = api_key or os.getenv("DEEPSEEK_API_KEY")
         self.model = model or self.DEFAULT_MODEL
+        # 显式超时与有限重试：LLM 端点挂起时快速失败，避免拖垮整个后端事件循环
         self.client = OpenAI(
             api_key=self.api_key,
-            base_url=self.BASE_URL
+            base_url=self.BASE_URL,
+            timeout=60,
+            max_retries=1,
         )
+
+    async def agenerate(self, *args, **kwargs) -> LLMResponse:
+        """异步包装：同步 SDK 调用放进线程池，不阻塞事件循环"""
+        import asyncio
+        return await asyncio.to_thread(self.generate, *args, **kwargs)
 
     def generate(
         self,

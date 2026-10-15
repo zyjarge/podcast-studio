@@ -304,7 +304,7 @@ def _cluster_topics_heuristic(news_list) -> list:
 
 
 @router.post("/cluster-topics")
-def cluster_topics(db: Session = Depends(get_db)):
+async def cluster_topics(db: Session = Depends(get_db)):
     """
     按话题聚类最近 30 条新闻（按创建时间倒序）。
     优先 LLM 聚类；LLM 不可用或输出解析失败时降级为关键词重叠启发式，
@@ -315,7 +315,8 @@ def cluster_topics(db: Session = Depends(get_db)):
         return {"topics": []}
 
     try:
-        topics = _cluster_topics_with_llm(news_list)
+        # LLM 调用是同步阻塞的，放进线程池，避免拖住事件循环
+        topics = await asyncio.to_thread(_cluster_topics_with_llm, news_list)
         return {"topics": topics}
     except Exception as e:
         logger.warning(f"LLM 话题聚类失败，降级为关键词启发式: {e}")

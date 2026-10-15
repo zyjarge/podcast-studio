@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from app.core.config import settings
+import asyncio
 import httpx
 import logging
 import os
@@ -66,16 +67,18 @@ class ScriptPromptUpdate(BaseModel):
 
 @router.get("/status")
 async def get_api_status():
-    """获取 API 配置状态"""
-    status = {}
-    
-    # Test DeepSeek - call API to verify connection
-    if settings.DEEPSEEK_API_KEY:
+    """获取 API 配置状态（实时探测在线程池并行执行，避免阻塞事件循环）"""
+
+    def _check_deepseek():
+        if not settings.DEEPSEEK_API_KEY:
+            return {"connected": False, "status": "not_configured"}
         try:
             from openai import OpenAI
             client = OpenAI(
                 api_key=settings.DEEPSEEK_API_KEY,
-                base_url="https://api.deepseek.com"
+                base_url="https://api.deepseek.com",
+                timeout=15,
+                max_retries=0,
             )
             # 发送简单提示词测试连接
             response = client.chat.completions.create(
@@ -84,16 +87,14 @@ async def get_api_status():
                 max_tokens=10
             )
             if response.choices and len(response.choices) > 0:
-                status["deepseek"] = {"connected": True, "status": "ok"}
-            else:
-                status["deepseek"] = {"connected": False, "status": "empty_response"}
+                return {"connected": True, "status": "ok"}
+            return {"connected": False, "status": "empty_response"}
         except Exception as e:
-            status["deepseek"] = {"connected": False, "status": str(e)}
-    else:
-        status["deepseek"] = {"connected": False, "status": "not_configured"}
-    
-    # Test MiniMax - call API to verify connection
-    if settings.MINIMAX_API_KEY:
+            return {"connected": False, "status": str(e)[:120]}
+
+    def _check_minimax():
+        if not settings.MINIMAX_API_KEY:
+            return {"connected": False, "status": "not_configured"}
         try:
             import requests
             headers = {"Authorization": f"Bearer {settings.MINIMAX_API_KEY}"}
@@ -106,15 +107,16 @@ async def get_api_status():
             )
             # 只要返回 200 就是连接正常
             if resp.status_code == 200:
-                status["minimax"] = {"connected": True, "status": "ok"}
-            else:
-                status["minimax"] = {"connected": False, "status": f"error_{resp.status_code}"}
+                return {"connected": True, "status": "ok"}
+            return {"connected": False, "status": f"error_{resp.status_code}"}
         except Exception as e:
-            status["minimax"] = {"connected": False, "status": str(e)}
-    else:
-        status["minimax"] = {"connected": False, "status": "not_configured"}
-    
-    return status
+            return {"connected": False, "status": str(e)[:120]}
+
+    deepseek_status, minimax_status = await asyncio.gather(
+        asyncio.to_thread(_check_deepseek),
+        asyncio.to_thread(_check_minimax),
+    )
+    return {"deepseek": deepseek_status, "minimax": minimax_status}
 
 
 @router.get("/env-keys")

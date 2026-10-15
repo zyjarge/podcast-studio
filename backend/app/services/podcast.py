@@ -2,6 +2,7 @@
 """
 Podcast generation service - wraps LLM and TTS services
 """
+import asyncio
 import os
 import logging
 from typing import Optional
@@ -60,7 +61,7 @@ class PodcastService:
         
         prompt = PODCAST_USER_TEMPLATE.format(news_text=news_content)
         
-        response = self.llm.generate(
+        response = await asyncio.to_thread(self.llm.generate,
             prompt=prompt,
             system_prompt=role_prompt,
             max_tokens=max_tokens,
@@ -123,7 +124,7 @@ class PodcastService:
             f"episode_notes={'yes' if episode_notes else 'no'}, max_tokens={max_tokens}"
         )
 
-        response = self.llm.generate(
+        response = await asyncio.to_thread(self.llm.generate,
             prompt=prompt,
             system_prompt=PODCAST_SYSTEM_PROMPT,
             max_tokens=max_tokens,
@@ -170,7 +171,7 @@ class PodcastService:
 
         logger.info(f"Generating title suggestions: {len(news_items)} news items")
 
-        response = self.llm.generate(
+        response = await asyncio.to_thread(self.llm.generate,
             prompt=prompt,
             max_tokens=max_tokens,
             temperature=0.9
@@ -229,7 +230,7 @@ class PodcastService:
             f"episode_notes={'yes' if episode_notes else 'no'}, max_tokens={max_tokens}"
         )
 
-        response = self.llm.generate(
+        response = await asyncio.to_thread(self.llm.generate,
             prompt=prompt,
             max_tokens=max_tokens,
             temperature=0.7
