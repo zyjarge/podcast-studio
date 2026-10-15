@@ -333,7 +333,7 @@ async def generate_script(
     db: Session = Depends(get_db)
 ):
     """
-    Generate script for a specific news item in an episode using DeepSeek LLM
+    Generate script for a specific news item in an episode using MiniMax LLM
     """
     episode_news = db.query(EpisodeNews).filter(
         EpisodeNews.episode_id == episode_id,

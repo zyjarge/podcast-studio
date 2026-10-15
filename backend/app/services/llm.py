@@ -1,4 +1,4 @@
-"""DeepSeek LLM 服务 - 使用 OpenAI SDK"""
+"""MiniMax LLM 服务 - 使用 OpenAI SDK（MiniMax 提供 OpenAI 兼容接口）"""
 import os
 import logging
 import yaml
@@ -93,15 +93,15 @@ class LLMResponse(BaseModel):
     usage: Optional[Dict[str, int]] = None
 
 
-class DeepSeekService:
-    """DeepSeek API Service - using OpenAI SDK"""
+class MiniMaxLLMService:
+    """MiniMax LLM API Service - using OpenAI SDK (OpenAI-compatible endpoint)"""
 
-    BASE_URL = "https://api.deepseek.com"
-    DEFAULT_MODEL = "deepseek-chat"
+    BASE_URL = "https://api.minimaxi.com/v1"
+    DEFAULT_MODEL = "abab6.5s-chat"
 
     def __init__(self, api_key: Optional[str] = None, model: str = None):
-        self.api_key = api_key or os.getenv("DEEPSEEK_API_KEY")
-        self.model = model or self.DEFAULT_MODEL
+        self.api_key = api_key or os.getenv("MINIMAX_API_KEY")
+        self.model = model or os.getenv("MINIMAX_MODEL") or self.DEFAULT_MODEL
         # 显式超时与有限重试：LLM 端点挂起时快速失败，避免拖垮整个后端事件循环
         self.client = OpenAI(
             api_key=self.api_key,
@@ -142,7 +142,7 @@ class DeepSeekService:
 
             messages.append({"role": "user", "content": prompt})
 
-            logger.info(f"DeepSeek API request with model: {self.model}")
+            logger.info(f"MiniMax LLM API request with model: {self.model}")
 
             response = self.client.chat.completions.create(
                 model=self.model,
@@ -165,5 +165,5 @@ class DeepSeekService:
             return LLMResponse(text=text, usage=usage)
 
         except Exception as e:
-            logger.error(f"DeepSeek API error: {e}")
+            logger.error(f"MiniMax LLM API error: {e}")
             raise

@@ -44,8 +44,8 @@ async function request(endpoint, options = {}) {
 export function humanizeError(e) {
   if (!(e instanceof ApiError)) return String(e)
   if (e.status === 0) return '网络异常——请确认后端服务正在运行，然后重试'
-  if (/DEEPSEEK_API_KEY|LLM service not initialized/i.test(e.message)) {
-    return 'DeepSeek 的 Key 无效或未配置，请到 设置 → API 配置 检查'
+  if (/MINIMAX_API_KEY|LLM service not initialized/i.test(e.message)) {
+    return 'MiniMax 的 Key 无效或未配置，请到 设置 → API 配置 检查'
   }
   return e.message
 }

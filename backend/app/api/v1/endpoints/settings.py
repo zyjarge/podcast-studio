@@ -1,8 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from app.core.config import settings
 import asyncio
-import httpx
 import logging
 import os
 import tempfile
@@ -69,20 +67,22 @@ class ScriptPromptUpdate(BaseModel):
 async def get_api_status():
     """获取 API 配置状态（实时探测在线程池并行执行，避免阻塞事件循环）"""
 
-    def _check_deepseek():
-        if not settings.DEEPSEEK_API_KEY:
+    def _check_minimax_llm():
+        # 实时读 env：pydantic settings 是启动快照，GUI 改 key 后探测要反映新值
+        api_key = os.getenv("MINIMAX_API_KEY") or os.getenv("MINIMAX_CN_API_KEY")
+        if not api_key:
             return {"connected": False, "status": "not_configured"}
         try:
             from openai import OpenAI
             client = OpenAI(
-                api_key=settings.DEEPSEEK_API_KEY,
-                base_url="https://api.deepseek.com",
+                api_key=api_key,
+                base_url="https://api.minimaxi.com/v1",
                 timeout=15,
                 max_retries=0,
             )
             # 发送简单提示词测试连接
             response = client.chat.completions.create(
-                model="deepseek-chat",
+                model=os.getenv("MINIMAX_MODEL", "abab6.5s-chat"),
                 messages=[{"role": "user", "content": "Hi"}],
                 max_tokens=10
             )
@@ -92,12 +92,13 @@ async def get_api_status():
         except Exception as e:
             return {"connected": False, "status": str(e)[:120]}
 
-    def _check_minimax():
-        if not settings.MINIMAX_API_KEY:
+    def _check_minimax_tts():
+        api_key = os.getenv("MINIMAX_API_KEY") or os.getenv("MINIMAX_CN_API_KEY")
+        if not api_key:
             return {"connected": False, "status": "not_configured"}
         try:
             import requests
-            headers = {"Authorization": f"Bearer {settings.MINIMAX_API_KEY}"}
+            headers = {"Authorization": f"Bearer {api_key}"}
             # 使用文件列表接口测试，需要 purpose 参数
             resp = requests.get(
                 "https://api.minimaxi.com/v1/files/list",
@@ -112,18 +113,18 @@ async def get_api_status():
         except Exception as e:
             return {"connected": False, "status": str(e)[:120]}
 
-    deepseek_status, minimax_status = await asyncio.gather(
-        asyncio.to_thread(_check_deepseek),
-        asyncio.to_thread(_check_minimax),
+    llm_status, tts_status = await asyncio.gather(
+        asyncio.to_thread(_check_minimax_llm),
+        asyncio.to_thread(_check_minimax_tts),
     )
-    return {"deepseek": deepseek_status, "minimax": minimax_status}
+    return {"llm": llm_status, "tts": tts_status}
 
 
 @router.get("/env-keys")
 async def get_env_keys():
     """获取当前环境变量（已配置的 key）"""
     result = {}
-    valid_keys = ["DEEPSEEK_API_KEY", "MINIMAX_API_KEY", "ELEVENLABS_API_KEY"]
+    valid_keys = ["MINIMAX_API_KEY", "MINIMAX_CN_API_KEY", "ELEVENLABS_API_KEY"]
     
     if ENV_FILE.exists():
         with open(ENV_FILE, "r") as f:
@@ -144,7 +145,7 @@ async def get_env_keys():
 @router.post("/update-env")
 async def update_env(key: str, value: str):
     """更新环境变量（写入 backend/app/api/.env + 立即更新进程内存，无需重启）"""
-    valid_keys = ["DEEPSEEK_API_KEY", "MINIMAX_API_KEY", "MINIMAX_CN_API_KEY",
+    valid_keys = ["MINIMAX_API_KEY", "MINIMAX_CN_API_KEY", "MINIMAX_MODEL",
                   "ELEVENLABS_API_KEY", "TTS_MODEL", "TTS_SPEED", "TTS_VOL", "TTS_PITCH"]
 
     if key not in valid_keys:

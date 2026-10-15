@@ -1,21 +1,21 @@
 """Tests for LLM Service"""
 import pytest
 import os
-from app.services.llm import DeepSeekService
+from app.services.llm import MiniMaxLLMService
 
 
-class TestDeepSeekService:
-    """Test DeepSeek LLM service"""
+class TestMiniMaxLLMService:
+    """Test MiniMax LLM service"""
 
     @pytest.fixture
     def llm_service(self):
         """Create LLM service instance"""
-        return DeepSeekService()
+        return MiniMaxLLMService()
 
     def test_api_key_loaded(self, llm_service):
         """Test that API key is loaded"""
         assert llm_service.api_key is not None
-        assert llm_service.api_key.startswith("sk-")
+        assert len(llm_service.api_key) > 0
 
     def test_simple_generation(self, llm_service):
         """Test simple text generation"""

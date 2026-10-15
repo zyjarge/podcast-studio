@@ -96,7 +96,7 @@ export default function Dashboard() {
     published: episodes.filter((e) => e.status === 'published').length,
   }
 
-  const hasKeys = Boolean(envKeys.DEEPSEEK_API_KEY && envKeys.MINIMAX_API_KEY)
+  const hasKeys = Boolean(envKeys.MINIMAX_API_KEY)
   const hasSources = sources.some((s) => s.enabled)
   const showOnboarding = !onboardingDismissed && !loading && !loadError && (!hasKeys || !hasSources)
 
@@ -247,7 +247,7 @@ export default function Dashboard() {
             </div>
             <div className="grid grid-cols-3 gap-4 mb-5">
               {[
-                { icon: KeyRound, step: '① 配置 API Key', desc: '填入 DeepSeek 与 MiniMax 的 Key', done: hasKeys },
+                { icon: KeyRound, step: '① 配置 API Key', desc: '填入 MiniMax 的 Key', done: hasKeys },
                 { icon: Rss, step: '② 添加 RSS 源', desc: '启用至少一个新闻来源', done: hasSources },
                 { icon: Download, step: '③ 抓取新闻', desc: '抓一批新闻，系统自动评分', done: false },
               ].map(({ icon: Icon, step, desc, done }) => (
